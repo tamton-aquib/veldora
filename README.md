@@ -21,14 +21,15 @@ cargo run secure.zip ~/Downloads/password_list.txt
 # OR
 cargo run secure.pdf ~/Downloads/password_list.txt
 ```
+
 ### Notes:
 * You could move the binary from `target/debug/veldora` to your `$PATH`. <br />
 This will allow us to use binary name anywhere instead of `cargo run`.
 * Get password lists from [here](https://github.com/kkrypt0nn/Wordlists)
-* To create custom passlist, try: cupp.py
+* To create custom passlist, try: [cupp.py](https://github.com/Mebus/cupp)
 * As always, not to be used for illegal purposes  : )
 
 ### TODOS:
 - [ ] Code cleaning.
 - [ ] Add support for other filetypes like rar.
-
+- [ ] Extraction for pdf function.
