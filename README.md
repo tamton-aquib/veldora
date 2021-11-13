@@ -1,6 +1,7 @@
 # Veldora
 
-A program to bruteforce zips, pdf and some popular hashes. 
+A program to bruteforce zips, pdf and some popular hashes.<br />
+This is basically a rust version of [bruttle](https://github.com/tamton-aquib/bruttle).
 
 ### Installation:
 ```sh
@@ -11,18 +12,23 @@ cargo build
 
 ### Usage:
 ```
-cargo run <filename> <password_list>
+cargo run <file/hash> <password_list>
 
-# Example:
+# Examples:
 cargo run "5f4dcc3b5aa765d61d8327deb882cf99" ./password_list.txt
 # OR
 cargo run secure.zip ~/Downloads/password_list.txt
 # OR
 cargo run secure.pdf ~/Downloads/password_list.txt
 ```
-or the same with binaries inside `target/debug/`
+### Notes:
+* You could move the binary from `target/debug/veldora` to your `$PATH`. <br />
+This will allow us to use binary name anywhere instead of `cargo run`.
+* Get password lists from [here](https://github.com/kkrypt0nn/Wordlists)
+* To create custom passlist, try: cupp.py
+* As always, not to be used for illegal purposes  : )
 
 ### TODOS:
 - [ ] Code cleaning.
-- [ ] Add support for other filetypes like rar, etc.
+- [ ] Add support for other filetypes like rar.
 
