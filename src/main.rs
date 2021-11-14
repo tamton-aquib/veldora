@@ -2,30 +2,12 @@ use md5::{Md5, Digest};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 
-use std::{io, env, fs};
+use std::{env, fs, io};
 use pdf::file::File;
 use colored::Colorize;
 use zip::ZipArchive;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        println!("{}", "Usage: bruttle <filename> <password_list>".bright_green());
-        return ();
-    }
-
-    let question = &args[1];
-    let pass_list = &args[2];
-
-    if question.ends_with(".pdf") {
-        ettup(question, &pass_list);
-    } else if question.ends_with(".zip") {
-        ettuz(question, &pass_list);
-    } else {
-        ettuh(question, &pass_list);
-    }
-}
-
+// For ZIP files
 fn ettuz(filename: &str, pass_list: &str) -> () {
     let zip_file = fs::File::open(filename).unwrap();
     let mut archive = ZipArchive::new(&zip_file).unwrap();
@@ -37,13 +19,14 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
     for pass in pass_list {
         if got_pass { break }
 
-        for index in 0..archive.len() {
-            let mut file = match archive.by_index_decrypt(index, pass.as_bytes()) {
-                Ok(stuff) => match stuff {
-                    Ok(real) => {
+        for idx in 0..archive.len() {
+            let mut file = match archive.by_index_decrypt(idx, pass.as_bytes()) {
+                Ok(zip) => match zip {
+                    Ok(og_file) => {
                         println!("Got Password: {}", pass.bright_green());
                         got_pass = true;
-                        real
+                        og_file
+                        // break
                     },
                     Err(_) => {
                         println!("trying: {}", pass.red());
@@ -51,7 +34,7 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
                     }
                 },
                 Err(_) => {
-                    println!("Continuing the quest");
+                    println!("Couldnt get the file correctly!");
                     continue
                 }
             };
@@ -62,6 +45,7 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
                 None => continue
             };
 
+            // Starts extraction
             if (&*file.name()).ends_with("/") {
                 println!("Folder");
                 fs::create_dir_all(&outpath).unwrap();
@@ -78,8 +62,8 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
     }
 }
 
+// for PDF files
 fn ettup(filename: &str, pass_file_name: &str) -> () {
-    // let pass_list = vec!["1234", "nice", "44566", "665544", "bruh"];
     let pass_file = fs::read_to_string(pass_file_name).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
 
@@ -94,14 +78,17 @@ fn ettup(filename: &str, pass_file_name: &str) -> () {
             Err(_) => println!("trying: {}", pass.red())
         }
     }
+
+    // TODO: pdf extraction
 }
 
-fn ettuh(string: &str, pass_list: &str) -> () {
-    let query = String::from(string);
+// For hashes
+fn ettuh(query: &str, pass_list: &str) -> () {
     let pass_file = fs::read_to_string(pass_list).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
 
-	for pass in pass_list.iter() {
+    for pass in pass_list.iter() {
+        // More hashes
         let pass_hash = match query.len() {
             32 => format!("{:x}", Md5::digest(pass.as_bytes())),
             40 => format!("{:x}", Sha1::digest(pass.as_bytes())),
@@ -109,9 +96,10 @@ fn ettuh(string: &str, pass_list: &str) -> () {
             64 => format!("{:x}", Sha256::digest(pass.as_bytes())),
             96 => format!("{:x}", Sha384::digest(pass.as_bytes())),
             128 => format!("{:x}", Sha512::digest(pass.as_bytes())),
-            _ => String::from("NULL"),
+            _ => "NULL".to_string()
         };
-        if pass_hash == query[..] {
+
+        if pass_hash == query {
             println!("Got matching hash: {}", pass.bright_green());
             break
         } else if pass_hash == "NULL" {
@@ -122,3 +110,23 @@ fn ettuh(string: &str, pass_list: &str) -> () {
         }
     }
 }
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        println!("{}", "Usage: bruttle <filename> <password_list>".bright_green());
+        return ();
+    }
+
+    let file_or_hash = &args[1];
+    let pass_list = &args[2];
+
+    if file_or_hash.ends_with(".pdf") {
+        ettup(file_or_hash, &pass_list);
+    } else if file_or_hash.ends_with(".zip") {
+        ettuz(file_or_hash, &pass_list);
+    } else {
+        ettuh(file_or_hash, &pass_list);
+    }
+}
+
