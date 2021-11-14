@@ -2,10 +2,12 @@ use md5::{Md5, Digest};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
 
-use std::{env, fs, io};
+use std::{io, env, fs};
 use pdf::file::File;
-use colored::Colorize;
 use zip::ZipArchive;
+
+use colored::Colorize;
+use indicatif::ProgressBar;
 
 // For ZIP files
 fn ettuz(filename: &str, pass_list: &str) -> () {
@@ -14,22 +16,28 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
 
     let pass_file = fs::read_to_string(pass_list).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
+    let bar = ProgressBar::new(pass_list.len() as u64);
+
     let mut got_pass: bool = false;
+    let mut possible_passes: Vec<&str> = vec![];
 
     for pass in pass_list {
-        if got_pass { break }
+        bar.inc(1);
+        if got_pass {
+            bar.finish();
+            break;
+        }
 
         for idx in 0..archive.len() {
-            let mut file = match archive.by_index_decrypt(idx, pass.as_bytes()) {
+            let mut file = match archive.by_index_decrypt(idx, String::from(pass).as_bytes()) {
                 Ok(zip) => match zip {
                     Ok(og_file) => {
-                        println!("Got Password: {}", pass.bright_green());
+                        // println!("\nGot Password: {}", pass.bright_green());
                         got_pass = true;
                         og_file
-                        // break
                     },
                     Err(_) => {
-                        println!("trying: {}", pass.red());
+                        // println!("trying: {}", pass.red());
                         break
                     }
                 },
@@ -56,28 +64,42 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
                     }
                 }
                 let mut outfile = fs::File::create(&outpath).unwrap();
-                io::copy(&mut file, &mut outfile).unwrap();
+                match io::copy(&mut file, &mut outfile) {
+                    Ok(_) => {
+                        possible_passes.push(pass);
+                    },
+                    Err(_) => {
+                        got_pass = false;
+                        continue
+                    }
+                }
             }
         }
     }
+    println!("Possible Passwords: {}", possible_passes.join("\n").bright_green());
 }
 
 // for PDF files
 fn ettup(filename: &str, pass_file_name: &str) -> () {
     let pass_file = fs::read_to_string(pass_file_name).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
+    let bar = ProgressBar::new(pass_list.len() as u64);
 
     for pass in pass_list.iter() {
+        bar.inc(1);
         let f = File::open_password(filename, pass.as_bytes());
 
         match &f {
             Ok(_) => {
-                println!("Found Password: {}", pass.bright_green());
-                break
+                bar.finish();
+                println!("\nFound Password: {}", pass.bright_green());
+                return ();
             },
-            Err(_) => println!("trying: {}", pass.red())
+            Err(_) => {}
         }
     }
+    bar.finish();
+    println!("Coundnt find password! :(");
 
     // TODO: pdf extraction
 }
@@ -86,8 +108,10 @@ fn ettup(filename: &str, pass_file_name: &str) -> () {
 fn ettuh(query: &str, pass_list: &str) -> () {
     let pass_file = fs::read_to_string(pass_list).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
+    let bar = ProgressBar::new(pass_list.len() as u64);
 
     for pass in pass_list.iter() {
+        bar.inc(1);
         // More hashes
         let pass_hash = match query.len() {
             32 => format!("{:x}", Md5::digest(pass.as_bytes())),
@@ -99,16 +123,19 @@ fn ettuh(query: &str, pass_list: &str) -> () {
             _ => "NULL".to_string()
         };
 
-        if pass_hash == query {
-            println!("Got matching hash: {}", pass.bright_green());
-            break
+        if pass_hash == query[..] {
+            bar.finish();
+            println!("\nGot matching hash: {}", pass.bright_green());
+            return ();
         } else if pass_hash == "NULL" {
             println!("{}", "No compatible hash found! :(".red());
             break
         } else {
-            println!("trying: {}", pass.red());
+            // bar.println(format!("trying: {}", pass.red()));
         }
     }
+    bar.finish();
+    println!("\nCouldnt find a match! :(");
 }
 
 fn main() {
