@@ -33,3 +33,4 @@ This will allow us to use binary name anywhere instead of `cargo run`.
 - [ ] Code cleaning.
 - [ ] Add support for other filetypes like rar.
 - [ ] Extraction for pdf function.
+- [ ] hash mode breaking for zip and pdf.

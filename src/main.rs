@@ -8,9 +8,10 @@ use zip::ZipArchive;
 
 use colored::Colorize;
 use indicatif::ProgressBar;
+// TODO: remove same unwraps
 
 // For ZIP files
-fn ettuz(filename: &str, pass_list: &str) -> () {
+fn ettuz(filename: &str, pass_list: &str) {
     let zip_file = fs::File::open(filename).unwrap();
     let mut archive = ZipArchive::new(&zip_file).unwrap();
 
@@ -32,14 +33,10 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
             let mut file = match archive.by_index_decrypt(idx, String::from(pass).as_bytes()) {
                 Ok(zip) => match zip {
                     Ok(og_file) => {
-                        // println!("\nGot Password: {}", pass.bright_green());
                         got_pass = true;
                         og_file
                     },
-                    Err(_) => {
-                        // println!("trying: {}", pass.red());
-                        break
-                    }
+                    Err(_) => break
                 },
                 Err(_) => {
                     println!("Couldnt get the file correctly!");
@@ -80,7 +77,7 @@ fn ettuz(filename: &str, pass_list: &str) -> () {
 }
 
 // for PDF files
-fn ettup(filename: &str, pass_file_name: &str) -> () {
+fn ettup(filename: &str, pass_file_name: &str) {
     let pass_file = fs::read_to_string(pass_file_name).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
@@ -93,7 +90,7 @@ fn ettup(filename: &str, pass_file_name: &str) -> () {
             Ok(_) => {
                 bar.finish();
                 println!("\nFound Password: {}", pass.bright_green());
-                return ();
+                return;
             },
             Err(_) => {}
         }
@@ -105,7 +102,7 @@ fn ettup(filename: &str, pass_file_name: &str) -> () {
 }
 
 // For hashes
-fn ettuh(query: &str, pass_list: &str) -> () {
+fn ettuh(query: &str, pass_list: &str) {
     let pass_file = fs::read_to_string(pass_list).unwrap();
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
@@ -126,7 +123,7 @@ fn ettuh(query: &str, pass_list: &str) -> () {
         if pass_hash == query[..] {
             bar.finish();
             println!("\nGot matching hash: {}", pass.bright_green());
-            return ();
+            return;
         } else if pass_hash == "NULL" {
             println!("{}", "No compatible hash found! :(".red());
             break
@@ -141,8 +138,8 @@ fn ettuh(query: &str, pass_list: &str) -> () {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        println!("{}", "Usage: bruttle <filename> <password_list>".bright_green());
-        return ();
+        println!("{}", "Usage: veldora <filename> <password_list>".bright_green());
+        return;
     }
 
     let file_or_hash = &args[1];
