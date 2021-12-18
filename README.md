@@ -11,15 +11,17 @@ cargo install veldora
 ### Usage:
 ```
 veldora <file/hash> <password_list>
+```
 
-# Examples:
+### Examples:
+```sh
 veldora "5f4dcc3b5aa765d61d8327deb882cf99" ./password_list.txt
-# OR
+
 veldora secure.zip ~/Downloads/password_list.txt
-# OR
+
 veldora secure.pdf ~/Downloads/password_list.txt
 ```
-> Make sure to add `$HOME/.cargo/` to path
+> Make sure `$HOME/.cargo/` is in path.
 
 ### Notes:
 * Get password lists from [here](https://github.com/kkrypt0nn/Wordlists)
@@ -31,5 +33,5 @@ veldora secure.pdf ~/Downloads/password_list.txt
 - [x] Code cleaning.
 - [x] Make error messages pretty.
 - [ ] Add support for other filetypes like rar.
-- [ ] hash mode breaking for zip and pdf. (super fast)
-- [ ] Solve unicode error when reading some passowrd lists.
+- [ ] hash mode breaking for zip and pdf. (would get super fast)
+- [ ] Solve unicode error when reading some password lists.
