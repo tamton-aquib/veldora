@@ -5,32 +5,31 @@ This is basically a rust version of [bruttle](https://github.com/tamton-aquib/br
 
 ### Installation:
 ```sh
-git clone https://github.com/tamton-aquib/veldora.git
-cd veldora
-cargo build
+cargo install veldora
 ```
 
 ### Usage:
 ```
-cargo run <file/hash> <password_list>
+veldora <file/hash> <password_list>
 
 # Examples:
-cargo run "5f4dcc3b5aa765d61d8327deb882cf99" ./password_list.txt
+veldora "5f4dcc3b5aa765d61d8327deb882cf99" ./password_list.txt
 # OR
-cargo run secure.zip ~/Downloads/password_list.txt
+veldora secure.zip ~/Downloads/password_list.txt
 # OR
-cargo run secure.pdf ~/Downloads/password_list.txt
+veldora secure.pdf ~/Downloads/password_list.txt
 ```
+> Make sure to add `$HOME/.cargo/` to path
 
 ### Notes:
-* You could move the binary from `target/debug/veldora` to your `$PATH`. <br />
-This will allow us to use binary name anywhere instead of `cargo run`.
 * Get password lists from [here](https://github.com/kkrypt0nn/Wordlists)
 * To create custom passlist, try: [cupp.py](https://github.com/Mebus/cupp)
 * As always, not to be used for illegal purposes  : )
 
 ### TODOS:
-- [ ] Code cleaning.
+- [x] Add to crates.io
+- [x] Code cleaning.
+- [x] Make error messages pretty.
 - [ ] Add support for other filetypes like rar.
-- [ ] hash mode breaking for zip and pdf.
-- [ ] Make error messages pretty.
+- [ ] hash mode breaking for zip and pdf. (super fast)
+- [ ] Solve unicode error when reading some passowrd lists.
