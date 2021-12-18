@@ -1,16 +1,33 @@
-use md5::{Md5, Digest};
+//! # Hash bruteforcing module
+//!
+//! For bruteforcing popular hashes. Will add more hashtypes soon.
+
+use indicatif::ProgressBar;
+use md5::{Digest, Md5};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
-use indicatif::ProgressBar;
 use std::fs;
 
 // For hashes
+/// Bruteforces the password for hashes like md5,Sha512,etc.
+///
+/// # Examples
+///
+/// ```
+/// use veldora::ettuh;
+///
+/// ... rest of your code.
+/// match ettuh(hash_string, password_list) {
+///     Some(pass) => println!("Possible password: {}", pass),
+///     None => println!("Couldn't get password!")
+/// };
+/// ```
 pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
     let pass_file = match fs::read_to_string(pass_list) {
         Ok(file) => file,
         Err(_) => {
             println!("Could not read file. File not encoded in utf-8");
-            return None
+            return None;
         }
     };
 
@@ -28,13 +45,13 @@ pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
             64 => format!("{:x}", Sha256::digest(pass.as_bytes())),
             96 => format!("{:x}", Sha384::digest(pass.as_bytes())),
             128 => format!("{:x}", Sha512::digest(pass.as_bytes())),
-            _ => "NULL".to_string()
+            _ => "NULL".to_string(),
         };
 
         // TODO: convert to match?
         if pass_hash == query {
             bar.finish();
-            return Some(format!("\nGot matching hash: {}", pass));
+            return Some(pass.to_string());
         } else if pass_hash == "NULL" {
             return Some("No compatible hash found! :(".to_string());
         } else {
