@@ -2,7 +2,7 @@
 //!
 //! For bruteforcing popular hashes. Will add more hashtypes soon.
 
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use md5::{Digest, Md5};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
@@ -33,6 +33,11 @@ pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
 
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
+    bar.set_style(
+        ProgressStyle::default_bar().template(
+            "{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})",
+        ),
+    );
 
     for pass in pass_list.iter() {
         bar.inc(1);

@@ -38,7 +38,7 @@ fn parse_type(path: &Path) -> u8 {
             _ => 4 as u8,
         },
         None => {
-            let char_list: Vec<char> = path.to_str().unwrap().chars().collect();
+            let char_list: Vec<char> = path.to_string_lossy().chars().collect();
             let is_hex = char_list.iter().all(|&x| "1234567890abcdef".contains(x));
 
             if is_hex {

@@ -29,10 +29,8 @@ veldora secure.pdf ~/Downloads/password_list.txt
 * As always, not to be used for illegal purposes  : )
 
 ### TODOS:
-- [ ] Solve unicode error when reading some password lists.
+- [x] Code cleaning and pretty error messages.
 - [x] Add to crates.io
-- [x] Add functions to lib.rs.
 - [ ] Add support for other filetypes like rar.
 - [ ] hash mode breaking for zip and pdf. (would get super fast)
-- [x] Code cleaning.
-- [x] Make error messages pretty.
+- [ ] Solve unicode error when reading some password lists.

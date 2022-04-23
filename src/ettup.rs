@@ -1,7 +1,7 @@
 //! # Pdf bruteforcing module
 //!
 //! For bruteforcing encrypted pdf files.
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use pdf::file::File;
 use std::fs;
 
@@ -22,7 +22,13 @@ use std::fs;
 pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
     let pass_file = fs::read_to_string(pass_file_name).expect("COULDN'T OPEN PASSWORD FILE");
     let pass_list: Vec<&str> = pass_file.split('\n').collect();
+    // let bar = ProgressBar::new(pass_list.len() as u64);
     let bar = ProgressBar::new(pass_list.len() as u64);
+    bar.set_style(
+        ProgressStyle::default_bar().template(
+            "{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})",
+        ),
+    );
 
     for pass in pass_list.iter() {
         bar.inc(1);
