@@ -13,38 +13,35 @@
 use colored::Colorize;
 use std::env;
 use std::path::Path;
-
-mod ettuh;
-mod ettup;
-mod ettuz;
+use veldora::{ettuh, ettup, ettuz};
 
 fn parse_type(path: &Path) -> u8 {
     match path.extension() {
         Some(e) => match e.to_str().unwrap() {
             "zip" => {
                 if path.exists() {
-                    1 as u8
+                    1
                 } else {
-                    5 as u8
+                    5
                 }
             }
             "pdf" => {
                 if path.exists() {
-                    2 as u8
+                    2
                 } else {
-                    5 as u8
+                    5
                 }
             }
-            _ => 4 as u8,
+            _ => 4,
         },
         None => {
             let char_list: Vec<char> = path.to_string_lossy().chars().collect();
             let is_hex = char_list.iter().all(|&x| "1234567890abcdef".contains(x));
 
             if is_hex {
-                3 as u8
+                3
             } else {
-                4 as u8
+                4
             }
         }
     }
@@ -61,15 +58,15 @@ fn main() {
     }
 
     let file_or_hash = &args[1];
-    let pass_list = &args[2];
+    let pass_file = &args[2];
 
     let path = Path::new(file_or_hash);
     let status: u8 = parse_type(path);
 
     let result = match status {
-        1 => ettuz::ettuz(file_or_hash, &pass_list),
-        2 => ettup::ettup(file_or_hash, &pass_list),
-        3 => ettuh::ettuh(file_or_hash, &pass_list),
+        1 => ettuz::ettuz(file_or_hash, &pass_file),
+        2 => ettup::ettup(file_or_hash, &pass_file),
+        3 => ettuh::ettuh(file_or_hash, &pass_file),
 
         4 => Some("Filetype not supported!".to_string()),
         5 => Some("Target file not Found!".to_string()),
@@ -77,7 +74,7 @@ fn main() {
     };
 
     match result {
-        Some(pass) => println!("Possible Passwords: {}", pass.bright_green()),
+        Some(pass) => println!("Possible Passwords:\n{}", pass.bright_green()),
         None => println!("Couldnt get pass!"),
     }
 }

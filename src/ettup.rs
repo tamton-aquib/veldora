@@ -20,9 +20,8 @@ use std::fs;
 /// };
 /// ```
 pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
-    let pass_file = fs::read_to_string(pass_file_name).expect("COULDN'T OPEN PASSWORD FILE");
-    let pass_list: Vec<&str> = pass_file.split('\n').collect();
-    // let bar = ProgressBar::new(pass_list.len() as u64);
+    let pass_file = fs::read_to_string(pass_file_name).expect("Couldnt open password file!");
+    let pass_list: Vec<&str> = pass_file.lines().collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar().template(
@@ -33,15 +32,12 @@ pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
     for pass in pass_list.iter() {
         bar.inc(1);
         let f = File::open_password(filename, pass.as_bytes());
-
-        match &f {
-            Ok(_) => {
-                bar.finish();
-                return Some(pass.to_string());
-            }
-            Err(_) => {}
-        };
+        if let Ok(_) = f {
+            bar.finish();
+            return Some(pass.to_string());
+        }
     }
+
     bar.finish();
     None
 }

@@ -4,17 +4,23 @@ description = "A command-line program to bruteforce zips, pdfs and some popular 
 homepage = "https://github.com/tamton-aquib/veldora"
 repository = "https://github.com/tamton-aquib/veldora"
 documentation = "https://docs.rs/veldora"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["tamton-aquib <aquibjavedt007@gmail.com>"]
 license = "MIT"
 edition = "2018"
 keywords = ["bruteforce", "dictionary", "zip", "pdf", "hash"]
 
 [dependencies]
-md-5 = "0.9.1"
-sha-1 = "0.9.8"
-sha2 = "0.9.8"
+md-5 = "0.10.1"
+sha-1 = "0.10.0"
+sha2 = "0.10.2"
 colored = "2.0.0"
 pdf = "0.7.2"
-zip = "0.5.13"
+zip = "0.6.2"
 indicatif = "0.16.2"
+anyhow = "1.0.57"
+
+[profile.optimized]
+inherits = "release"
+opt-level = "z"
+strip = true
