@@ -32,7 +32,7 @@ pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
     for pass in pass_list.iter() {
         bar.inc(1);
         let f = File::open_password(filename, pass.as_bytes());
-        if let Ok(_) = f {
+        if f.is_ok() {
             bar.finish();
             return Some(pass.to_string());
         }

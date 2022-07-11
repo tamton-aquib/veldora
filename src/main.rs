@@ -64,9 +64,9 @@ fn main() {
     let status: u8 = parse_type(path);
 
     let result = match status {
-        1 => ettuz::ettuz(file_or_hash, &pass_file),
-        2 => ettup::ettup(file_or_hash, &pass_file),
-        3 => ettuh::ettuh(file_or_hash, &pass_file),
+        1 => ettuz::ettuz(file_or_hash, pass_file),
+        2 => ettup::ettup(file_or_hash, pass_file),
+        3 => ettuh::ettuh(file_or_hash, pass_file),
 
         4 => Some("Filetype not supported!".to_string()),
         5 => Some("Target file not Found!".to_string()),

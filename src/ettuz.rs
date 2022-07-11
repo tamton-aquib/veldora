@@ -55,7 +55,7 @@ pub fn ettuz(filename: &str, pass_list: &str) -> Option<String> {
     // None
 
     bar.finish();
-    if possible_passes.len() > 0 {
+    if !possible_passes.is_empty() {
         Some(possible_passes.join("\n"))
     } else {
         None

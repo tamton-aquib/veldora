@@ -14,11 +14,11 @@ keywords = ["bruteforce", "dictionary", "zip", "pdf", "hash"]
 md-5 = "0.10.1"
 sha-1 = "0.10.0"
 sha2 = "0.10.2"
-colored = "2.0.0"
 pdf = "0.7.2"
 zip = "0.6.2"
 indicatif = "0.16.2"
-anyhow = "1.0.57"
+colored = "2.0.0"
+# anyhow = "1.0.57"
 
 [profile.optimized]
 inherits = "release"
