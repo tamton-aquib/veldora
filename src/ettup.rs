@@ -24,9 +24,9 @@ pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
     let pass_list: Vec<&str> = pass_file.lines().collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
     bar.set_style(
-        ProgressStyle::default_bar().template(
-            "{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})",
-        ),
+        ProgressStyle::default_bar()
+            .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})")
+            .unwrap(),
     );
 
     for pass in pass_list.iter() {

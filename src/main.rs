@@ -61,9 +61,8 @@ fn main() {
     let pass_file = &args[2];
 
     let path = Path::new(file_or_hash);
-    let status: u8 = parse_type(path);
 
-    let result = match status {
+    let result = match parse_type(path) {
         1 => ettuz::ettuz(file_or_hash, pass_file),
         2 => ettup::ettup(file_or_hash, pass_file),
         3 => ettuh::ettuh(file_or_hash, pass_file),

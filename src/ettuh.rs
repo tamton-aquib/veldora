@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use md5::{Digest, Md5};
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
+use tiger::Tiger;
 use std::fs;
 
 // For hashes
@@ -29,18 +30,19 @@ pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
     let pass_list: Vec<&str> = pass_file.lines().collect();
     let bar = ProgressBar::new(pass_list.len() as u64);
     bar.set_style(
-        ProgressStyle::default_bar().template(
-            "{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})",
-        ),
+        ProgressStyle::default_bar()
+            .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})")
+            .unwrap(),
     );
 
     for pass in pass_list.iter() {
         bar.inc(1);
 
         // TODO: maybe support more hashes?
-        let pass_hash = match query.len() {
+        let pass_hash = match query.trim().len() {
             32 => Some(format!("{:x}", Md5::digest(pass.as_bytes()))),
             40 => Some(format!("{:x}", Sha1::digest(pass.as_bytes()))),
+            48 => Some(format!("{:x}", Tiger::digest(pass.as_bytes()))),
             56 => Some(format!("{:x}", Sha224::digest(pass.as_bytes()))),
             64 => Some(format!("{:x}", Sha256::digest(pass.as_bytes()))),
             96 => Some(format!("{:x}", Sha384::digest(pass.as_bytes()))),
