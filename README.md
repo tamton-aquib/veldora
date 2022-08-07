@@ -33,5 +33,6 @@ veldora secure.pdf ~/Downloads/password_list.txt
 - [x] Add to crates.io
 - [ ] Add support for other filetypes like rar.
 - [ ] Add more hashtypes (bcrypt, whirpool, etc)
+- [ ] Add tests for each.
 - [ ] hash mode breaking for zip and pdf. (would get super fast)
 - [ ] Solve unicode error when reading some password lists.
