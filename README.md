@@ -4,7 +4,12 @@ A command-line program to bruteforce zips, pdfs and some popular hashes.<br />
 This is basically a rust version of [bruttle](https://github.com/tamton-aquib/bruttle), but a lot faster.
 
 ### Installation:
-```sh
+> From AUR
+```bash
+yay -S veldora
+```
+> From source
+```bash
 cargo install veldora
 ```
 
