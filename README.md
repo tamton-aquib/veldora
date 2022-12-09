@@ -28,6 +28,8 @@ veldora secure.pdf ~/Downloads/password_list.txt
 ```
 > Make sure `$HOME/.cargo/` is in path.
 
+![veldora](https://user-images.githubusercontent.com/77913442/206756044-17d50402-7c5b-49e1-8047-acbc2c7dd288.gif)
+
 ### Notes:
 * Get password lists from [here](https://github.com/kkrypt0nn/Wordlists)
 * To create custom passlist, try: [cupp.py](https://github.com/Mebus/cupp)
