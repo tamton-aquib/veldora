@@ -815,7 +815,7 @@ checksum = "3ed742d4ea2bd1176e236172c8429aaf54486e7ac098db29ffe6529e0ce50973"
 
 [[package]]
 name = "veldora"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "colored",
  "indicatif",

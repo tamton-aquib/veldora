@@ -15,33 +15,41 @@ use std::env;
 use std::path::Path;
 use veldora::{ettuh, ettup, ettuz};
 
+enum Status {
+    Ettuz,
+    Ettup,
+    Ettuh,
+    FileNotSupported,
+    FileNotFound,
+}
+
 fn parse_type(path: &Path) -> u8 {
     match path.extension() {
         Some(e) => match e.to_str().unwrap() {
             "zip" => {
                 if path.exists() {
-                    1
+                    Status::Ettuz
                 } else {
-                    5
+                    Status::FileNotFound
                 }
             }
             "pdf" => {
                 if path.exists() {
-                    2
+                    Status::Ettup
                 } else {
-                    5
+                    Status::FileNotFound
                 }
             }
-            _ => 4,
+            _ => Status::FileNotSupported,
         },
         None => {
             let char_list: Vec<char> = path.to_string_lossy().chars().collect();
             let is_hex = char_list.iter().all(|&x| "1234567890abcdef".contains(x));
 
             if is_hex {
-                3
+                Status::Ettuh
             } else {
-                4
+                Status::FileNotSupported
             }
         }
     }
@@ -63,12 +71,12 @@ fn main() {
     let path = Path::new(file_or_hash);
 
     let result = match parse_type(path) {
-        1 => ettuz::ettuz(file_or_hash, pass_file),
-        2 => ettup::ettup(file_or_hash, pass_file),
-        3 => ettuh::ettuh(file_or_hash, pass_file),
+        Status::Ettuz => ettuz::ettuz(file_or_hash, pass_file),
+        Status::Ettup => ettup::ettup(file_or_hash, pass_file),
+        Status::Ettuh => ettuh::ettuh(file_or_hash, pass_file),
 
-        4 => Some("Filetype not supported!".to_string()),
-        5 => Some("Target file not Found!".to_string()),
+        Status::FileNotSupported => Some("Filetype not supported!".to_string()),
+        Status::FileNotFound => Some("Target file not Found!".to_string()),
         _ => Some("Unknown Operation!".to_string()),
     };
 
