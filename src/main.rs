@@ -23,7 +23,7 @@ enum Status {
     FileNotFound,
 }
 
-fn parse_type(path: &Path) -> u8 {
+fn parse_type(path: &Path) -> Status {
     match path.extension() {
         Some(e) => match e.to_str().unwrap() {
             "zip" => {
@@ -77,7 +77,6 @@ fn main() {
 
         Status::FileNotSupported => Some("Filetype not supported!".to_string()),
         Status::FileNotFound => Some("Target file not Found!".to_string()),
-        _ => Some("Unknown Operation!".to_string()),
     };
 
     match result {
