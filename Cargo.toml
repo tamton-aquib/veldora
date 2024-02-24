@@ -19,6 +19,7 @@ zip = "0.6.2"
 indicatif = "0.17.0"
 colored = "2.0"
 tiger = "0.2"
+rayon = "1.8.1"
 
 [profile.optimized]
 inherits = "release"

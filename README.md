@@ -38,6 +38,7 @@ veldora secure.pdf ~/Downloads/password_list.txt
 ### TODOS:
 - [x] Code cleaning and pretty error messages.
 - [x] Add to crates.io
+- [ ] Add concurrency (with rayon)
 - [ ] Add support for other filetypes like rar.
 - [ ] Add more hashtypes (bcrypt, whirpool, etc)
 - [ ] Add tests for each.
