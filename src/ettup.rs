@@ -3,9 +3,10 @@
 //! For bruteforcing encrypted pdf files.
 
 use indicatif::{ProgressBar, ProgressStyle};
-use pdf::file::File;
+use pdf::file::File as PdfFile;
 use rayon::prelude::*;
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 // for PDF files
 /// Bruteforces the password for a pdf file.
@@ -22,8 +23,11 @@ use std::fs;
 /// };
 /// ```
 pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
-    let pass_file = fs::read_to_string(pass_file_name).expect("Couldnt open password file!");
-    let pass_list: Vec<&str> = pass_file.lines().collect();
+    let reader = BufReader::new(
+        File::open(pass_file_name).expect("Couldnt open password file!"),
+    );
+    let pass_list: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
     let bar = ProgressBar::new(pass_list.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar()
@@ -31,14 +35,11 @@ pub fn ettup(filename: &str, pass_file_name: &str) -> Option<String> {
             .unwrap(),
     );
 
-    let results = pass_list
+    pass_list
         .par_iter()
         .find_first(|pass| {
             bar.inc(1);
-            let f = File::open_password(filename, pass.as_bytes());
-            f.is_ok()
+            PdfFile::open_password(filename, pass.as_bytes()).is_ok()
         })
-        .map(|pass| pass.to_string());
-
-    results.into_iter().next()
+        .map(|pass| pass.to_string())
 }

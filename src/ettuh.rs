@@ -7,7 +7,8 @@ use md5::{Digest, Md5};
 use rayon::prelude::*;
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use tiger::Tiger;
 
 // For hashes
@@ -25,10 +26,17 @@ use tiger::Tiger;
 /// };
 /// ```
 pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
-    let pass_file = fs::read_to_string(pass_list)
-        .expect("Error reading the file. Make sure its UTF-8 encoded!");
+    let target_hex = query.trim();
+    let target: Vec<u8> = (0..target_hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&target_hex[i..i + 2], 16).unwrap())
+        .collect();
 
-    let pass_list: Vec<&str> = pass_file.lines().collect();
+    let reader = BufReader::new(
+        File::open(pass_list).expect("Error reading the file. Make sure its UTF-8 encoded!"),
+    );
+    let pass_list: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
     let bar = ProgressBar::new(pass_list.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar()
@@ -36,32 +44,20 @@ pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
             .unwrap(),
     );
 
-    let results = pass_list
+    pass_list
         .par_iter()
-        .map(|pass| {
+        .find_first(|pass| {
             bar.inc(1);
-
-            // TODO: maybe support more hashes?
-            let pass_hash = match query.trim().len() {
-                32 => Some(format!("{:x}", Md5::digest(pass.as_bytes()))),
-                40 => Some(format!("{:x}", Sha1::digest(pass.as_bytes()))),
-                48 => Some(format!("{:x}", Tiger::digest(pass.as_bytes()))),
-                56 => Some(format!("{:x}", Sha224::digest(pass.as_bytes()))),
-                64 => Some(format!("{:x}", Sha256::digest(pass.as_bytes()))),
-                96 => Some(format!("{:x}", Sha384::digest(pass.as_bytes()))),
-                128 => Some(format!("{:x}", Sha512::digest(pass.as_bytes()))),
-                _ => None,
-            };
-
-            if let Some(nice) = pass_hash {
-                if nice == query {
-                    println!("Some password has been here!");
-                    return Some(pass.to_string());
-                }
+            match target.len() {
+                16 => &*Md5::digest(pass.as_bytes()) == target.as_slice(),
+                20 => &*Sha1::digest(pass.as_bytes()) == target.as_slice(),
+                24 => &*Tiger::digest(pass.as_bytes()) == target.as_slice(),
+                28 => &*Sha224::digest(pass.as_bytes()) == target.as_slice(),
+                32 => &*Sha256::digest(pass.as_bytes()) == target.as_slice(),
+                48 => &*Sha384::digest(pass.as_bytes()) == target.as_slice(),
+                64 => &*Sha512::digest(pass.as_bytes()) == target.as_slice(),
+                _ => false,
             }
-            None
         })
-        .collect::<Vec<Option<String>>>();
-
-    results.into_iter().find_map(|x| x)
+        .map(|pass| pass.to_string())
 }
