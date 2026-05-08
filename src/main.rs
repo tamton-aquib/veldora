@@ -80,7 +80,8 @@ fn main() {
     };
 
     match result {
-        Some(pass) => println!("Possible Passwords:\n{}", pass.bright_green()),
+        Some(pass) if !pass.is_empty() => println!("Possible Passwords:\n{}", pass.bright_green()),
         None => println!("Couldnt get pass!"),
+        _ => {}
     }
 }
