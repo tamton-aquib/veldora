@@ -15,11 +15,12 @@ md-5 = "0.10.1"
 sha-1 = "0.10"
 sha2 = "0.10.2"
 pdf = "0.7.2"
-zip = "0.6.2"
 indicatif = "0.17.0"
 colored = "2.0"
 tiger = "0.2"
 rayon = "1.8.1"
+memmap2 = "0.9"
+flate2 = "1.0"
 
 [profile.optimized]
 inherits = "release"
