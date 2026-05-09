@@ -72,7 +72,13 @@ fn main() {
 
     let result = match parse_type(path) {
         Status::Ettuz => ettuz::ettuz(file_or_hash, pass_file),
-        Status::Ettup => ettup::ettup(file_or_hash, pass_file),
+        Status::Ettup => match ettup::ettup(file_or_hash, pass_file) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{}", e);
+                Some(String::new())
+            }
+        },
         Status::Ettuh => ettuh::ettuh(file_or_hash, pass_file),
 
         Status::FileNotSupported => Some("Filetype not supported!".to_string()),

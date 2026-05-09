@@ -1,3 +1,4 @@
+use crate::util;
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::Mmap;
 use rayon::prelude::*;
@@ -318,26 +319,6 @@ fn extract_zip_info(data: &[u8]) -> Option<ZipCryptoContext> {
     })
 }
 
-fn collect_line_offsets(data: &[u8]) -> Vec<(usize, usize)> {
-    let mut offsets = Vec::new();
-    let mut start = 0;
-    for (i, &b) in data.iter().enumerate() {
-        if b == b'\n' {
-            let end = if i > 0 && data[i - 1] == b'\r' {
-                i - 1
-            } else {
-                i
-            };
-            offsets.push((start, end));
-            start = i + 1;
-        }
-    }
-    if start < data.len() {
-        offsets.push((start, data.len()));
-    }
-    offsets
-}
-
 pub fn ettuz(filename: &str, pass_list: &str) -> Option<String> {
     // Pre-extract ZIP data once — zero I/O during cracking
     let zip_data = std::fs::read(filename).expect("Could not read the zip file.");
@@ -351,7 +332,7 @@ pub fn ettuz(filename: &str, pass_list: &str) -> Option<String> {
     };
 
     // Build line offsets from the mmap'd data
-    let lines = collect_line_offsets(&mmap);
+    let lines = util::collect_line_offsets(&mmap);
     let total = lines.len();
 
     let bar = ProgressBar::new(total as u64);

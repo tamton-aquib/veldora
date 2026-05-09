@@ -701,6 +701,7 @@ name = "veldora"
 version = "0.3.0"
 dependencies = [
  "colored",
+ "digest 0.10.3",
  "flate2",
  "indicatif",
  "md-5",
