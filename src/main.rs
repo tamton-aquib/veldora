@@ -1,59 +1,10 @@
-//! # Veldora
-//!
-//! This program can bruteforce (with a dictionary attack) on:
-//! - PDF
-//! - ZIP
-//! - Hashes like md5,sha1,224,256,384,512
-//!
-//! Some Exposed functions are:
-//! - ettuz (for zips)
-//! - ettup (for pdfs)
-//! - ettuh (for hashes)
-
 use colored::Colorize;
 use std::env;
 use std::path::Path;
 use veldora::{ettuh, ettup, ettuz};
 
-enum Status {
-    Ettuz,
-    Ettup,
-    Ettuh,
-    FileNotSupported,
-    FileNotFound,
-}
-
-fn parse_type(path: &Path) -> Status {
-    match path.extension() {
-        Some(e) => match e.to_str().unwrap() {
-            "zip" => {
-                if path.exists() {
-                    Status::Ettuz
-                } else {
-                    Status::FileNotFound
-                }
-            }
-            "pdf" => {
-                if path.exists() {
-                    Status::Ettup
-                } else {
-                    Status::FileNotFound
-                }
-            }
-            _ => Status::FileNotSupported,
-        },
-        None => {
-            let char_list: Vec<char> = path.to_string_lossy().chars().collect();
-            let is_hex = char_list.iter().all(|&x| "1234567890abcdef".contains(x));
-
-            if is_hex {
-                Status::Ettuh
-            } else {
-                Status::FileNotSupported
-            }
-        }
-    }
-}
+mod cli;
+use cli::FileType;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -67,22 +18,20 @@ fn main() {
 
     let file_or_hash = &args[1];
     let pass_file = &args[2];
-
     let path = Path::new(file_or_hash);
 
-    let result = match parse_type(path) {
-        Status::Ettuz => ettuz::ettuz(file_or_hash, pass_file),
-        Status::Ettup => match ettup::ettup(file_or_hash, pass_file) {
+    let result = match cli::detect(path) {
+        FileType::Zip => ettuz::ettuz(file_or_hash, pass_file),
+        FileType::Pdf => match ettup::ettup(file_or_hash, pass_file) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("{}", e);
                 Some(String::new())
             }
         },
-        Status::Ettuh => ettuh::ettuh(file_or_hash, pass_file),
-
-        Status::FileNotSupported => Some("Filetype not supported!".to_string()),
-        Status::FileNotFound => Some("Target file not Found!".to_string()),
+        FileType::Hash => ettuh::ettuh(file_or_hash, pass_file),
+        FileType::NotSupported => Some("Filetype not supported!".to_string()),
+        FileType::NotFound => Some("Target file not Found!".to_string()),
     };
 
     match result {

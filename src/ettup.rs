@@ -1,9 +1,6 @@
 use crate::util;
 use crate::pdf_crypto::PdfCryptoContext;
-use indicatif::{ProgressBar, ProgressStyle};
-use memmap2::Mmap;
 use rayon::prelude::*;
-use std::fs::File;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub fn ettup(
@@ -12,22 +9,14 @@ pub fn ettup(
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let ctx = PdfCryptoContext::from_file(filename)?;
 
-    let pass_file = File::open(pass_file_name)?;
-    let mmap = unsafe { Mmap::map(&pass_file)? };
-
-    let lines = util::collect_line_offsets(&mmap);
+    let (mmap, lines) = util::mmap_wordlist(pass_file_name)?;
     let total = lines.len();
 
     if total == 0 {
         return Ok(None);
     }
 
-    let bar = ProgressBar::new(total as u64);
-    bar.set_style(
-        ProgressStyle::default_bar()
-            .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})")
-            .unwrap(),
-    );
+    let bar = util::make_progress_bar(total as u64);
 
     let killed = AtomicBool::new(false);
     let processed = AtomicUsize::new(0);

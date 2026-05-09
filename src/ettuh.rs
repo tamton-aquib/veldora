@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader};
 use tiger::Tiger;
 
 // For hashes
-/// Bruteforces the password for hashes like md5,Sha512,etc.
+/// Bruteforces the password for hashes like md5, Sha512, etc.
 ///
 /// # Examples
 ///
@@ -20,7 +20,7 @@ use tiger::Tiger;
 /// use veldora::ettuh;
 ///
 /// // ... rest of your code.
-/// match ettuh(hash_string, password_list) {
+/// match ettuh("5d41402abc4b2a76b9719d911017c592", "/path/to/passlist.txt") {
 ///     Some(pass) => println!("Possible password: {}", pass),
 ///     None => println!("Couldn't get password!")
 /// };
