@@ -12,11 +12,6 @@ pub fn ettup(
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let ctx = PdfCryptoContext::from_file(filename)?;
 
-    if ctx.r > 4 {
-        return Err("PDF encryption revision 5/6 not yet implemented in high-perf path. \
-                     Use the pdf crate directly for now.".into());
-    }
-
     let pass_file = File::open(pass_file_name)?;
     let mmap = unsafe { Mmap::map(&pass_file)? };
 

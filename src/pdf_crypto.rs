@@ -1,3 +1,9 @@
+use aes::{
+    Aes128, Aes256,
+    cipher::{BlockDecrypt, BlockEncrypt, KeyInit, consts::U16, generic_array::GenericArray},
+};
+use sha2::{Digest, Sha256, Sha384, Sha512};
+use std::convert::TryInto;
 use pdf::backend::Backend;
 use pdf::object::Resolve;
 use pdf::primitive::{Dictionary, Primitive};
@@ -14,6 +20,9 @@ pub struct PdfCryptoContext {
     pub o_len: usize,
     pub u: [u8; 48],
     pub u_len: usize,
+    pub oe: [u8; 32],
+    pub ue: [u8; 32],
+    pub perms: [u8; 16],
     pub id: [u8; 32],
     pub id_len: usize,
     pub p: i32,
@@ -89,11 +98,34 @@ impl PdfCryptoContext {
         let o_len = o_bytes.len().min(48);
         let u_len = u_bytes.len().min(48);
 
+        let oe_bytes = if v_val >= 5 {
+            get_string_bytes(&encrypt_dict, "OE").ok()
+        } else {
+            None
+        };
+        let ue_bytes = if v_val >= 5 {
+            get_string_bytes(&encrypt_dict, "UE").ok()
+        } else {
+            None
+        };
+        let perms_bytes = if v_val >= 5 {
+            get_string_bytes(&encrypt_dict, "Perms").ok()
+        } else {
+            None
+        };
+
+        let oe_len = oe_bytes.as_ref().map(|b| b.len().min(32)).unwrap_or(0);
+        let ue_len = ue_bytes.as_ref().map(|b| b.len().min(32)).unwrap_or(0);
+        let perms_len = perms_bytes.as_ref().map(|b| b.len().min(16)).unwrap_or(0);
+
         let mut ctx = Self {
             o: [0u8; 48],
             o_len,
             u: [0u8; 48],
             u_len,
+            oe: [0u8; 32],
+            ue: [0u8; 32],
+            perms: [0u8; 16],
             id: [0u8; 32],
             id_len,
             p: p_val,
@@ -104,6 +136,15 @@ impl PdfCryptoContext {
         };
         ctx.o[..o_len].copy_from_slice(&o_bytes[..o_len]);
         ctx.u[..u_len].copy_from_slice(&u_bytes[..u_len]);
+        if let Some(b) = oe_bytes {
+            ctx.oe[..oe_len].copy_from_slice(&b[..oe_len]);
+        }
+        if let Some(b) = ue_bytes {
+            ctx.ue[..ue_len].copy_from_slice(&b[..ue_len]);
+        }
+        if let Some(b) = perms_bytes {
+            ctx.perms[..perms_len].copy_from_slice(&b[..perms_len]);
+        }
         ctx.id[..id_len].copy_from_slice(&id[..id_len]);
         Ok(ctx)
     }
@@ -112,6 +153,7 @@ impl PdfCryptoContext {
         match self.r {
             2 => self.verify_r2(pass),
             3 | 4 => self.verify_r34(pass),
+            5 | 6 => self.verify_r56(pass),
             _ => false,
         }
     }
@@ -147,6 +189,28 @@ impl PdfCryptoContext {
         let user_key = derive_key_user(user_pass, self);
         let u_computed2 = compute_u_rev_3_4(&self.id[..self.id_len], &user_key[..self.key_size]);
         &u_computed2 == &self.u[..16]
+    }
+
+    fn verify_r56(&self, pass: &[u8]) -> bool {
+        if self.u_len >= 40 {
+            let salt: &[u8; 8] = (&self.u[32..40]).try_into().unwrap();
+            let expected: &[u8; 32] = (&self.u[..32]).try_into().unwrap();
+            let computed = hash_v5(pass, salt, &[], self.r);
+            if &computed == expected {
+                return true;
+            }
+        }
+
+        if self.o_len >= 40 && self.u_len >= 48 {
+            let salt: &[u8; 8] = (&self.o[32..40]).try_into().unwrap();
+            let expected: &[u8; 32] = (&self.o[..32]).try_into().unwrap();
+            let computed = hash_v5(pass, salt, &self.u[..48], self.r);
+            if &computed == expected {
+                return true;
+            }
+        }
+
+        false
     }
 
 }
@@ -364,6 +428,119 @@ fn compute_u_rev_3_4(id: &[u8], key: &[u8]) -> [u8; 16] {
     }
 
     data
+}
+
+type Block16 = GenericArray<u8, U16>;
+
+fn aes_128_cbc_encrypt(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    let mut buf = data.to_vec();
+    let cipher = Aes128::new_from_slice(key).unwrap();
+    let mut prev = Block16::clone_from_slice(iv);
+    for chunk in buf.chunks_exact_mut(16) {
+        let block = GenericArray::from_mut_slice(chunk);
+        for i in 0..16 {
+            block[i] ^= prev[i];
+        }
+        cipher.encrypt_block(block);
+        prev.copy_from_slice(&block[..]);
+    }
+    buf
+}
+
+#[allow(dead_code)]
+fn aes_256_cbc_decrypt(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
+    if data.len() < 16 || data.len() % 16 != 0 {
+        return Vec::new();
+    }
+
+    let mut buf = data.to_vec();
+    let cipher = Aes256::new_from_slice(key).unwrap();
+    let zero_iv = Block16::default();
+    let mut prev = zero_iv;
+
+    for chunk in buf.chunks_exact_mut(16) {
+        let block = GenericArray::from_mut_slice(chunk);
+        let saved = *block;
+        cipher.decrypt_block(block);
+        for i in 0..16 {
+            block[i] ^= prev[i];
+        }
+        prev = saved;
+    }
+
+    let pad_len = *buf.last().unwrap_or(&0) as usize;
+    if pad_len > 0 && pad_len <= 16 {
+        buf.truncate(buf.len() - pad_len);
+    }
+    buf
+}
+
+fn hash_v5(password: &[u8], salt: &[u8; 8], udata: &[u8], r: u32) -> [u8; 32] {
+    if r == 5 {
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.update(salt);
+        hasher.update(udata);
+        let result = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&result);
+        return out;
+    }
+
+    let mut k = {
+        let mut hasher = Sha256::new();
+        hasher.update(password);
+        hasher.update(salt);
+        hasher.update(udata);
+        let result = hasher.finalize();
+        result.to_vec()
+    };
+
+    for round_num in 1.. {
+        let k1: Vec<u8> = [password, &k, udata].concat();
+        let data: Vec<u8> = k1.repeat(64);
+
+        let aes_key: &[u8; 16] = (&k[0..16]).try_into().unwrap();
+        let aes_iv: &[u8; 16] = (&k[16..32]).try_into().unwrap();
+
+        let e = aes_128_cbc_encrypt(aes_key, aes_iv, &data);
+
+        let sum_first16: u32 = e.iter().take(16).map(|&b| b as u32).sum();
+        let hash_bits = match sum_first16 % 3 {
+            0 => 256,
+            1 => 384,
+            _ => 512,
+        };
+
+        k = match hash_bits {
+            256 => {
+                let mut hasher = Sha256::new();
+                hasher.update(&e);
+                hasher.finalize().to_vec()
+            }
+            384 => {
+                let mut hasher = Sha384::new();
+                hasher.update(&e);
+                hasher.finalize().to_vec()
+            }
+            _ => {
+                let mut hasher = Sha512::new();
+                hasher.update(&e);
+                hasher.finalize().to_vec()
+            }
+        };
+
+        if round_num >= 64 {
+            let last_byte = e.last().copied().unwrap_or(0);
+            if (last_byte as u32) <= (round_num - 32) {
+                break;
+            }
+        }
+    }
+
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&k[..32]);
+    out
 }
 
 #[inline(always)]
