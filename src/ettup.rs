@@ -41,8 +41,7 @@ pub fn ettup(
     match found {
         Some((start, end)) => {
             let pass = std::str::from_utf8(&mmap[start..end]).unwrap_or("<binary>");
-            println!("Possible password: \"{}\"", pass);
-            Ok(Some(String::new()))
+            Ok(Some(pass.to_string()))
         }
         None => Ok(None),
     }

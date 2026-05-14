@@ -32,8 +32,7 @@ pub fn ettuz(filename: &str, pass_list: &str) -> Option<String> {
     match found {
         Some(&(start, end)) => {
             let pass = std::str::from_utf8(&mmap[start..end]).unwrap_or("<binary>");
-            println!("Possible password: \"{}\"", pass);
-            Some(String::new())
+            Some(pass.to_string())
         }
         None => None,
     }
