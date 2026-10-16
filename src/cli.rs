@@ -9,8 +9,8 @@ pub enum FileType {
 }
 
 pub fn detect(path: &Path) -> FileType {
-    match path.extension() {
-        Some(e) => match e.to_str().unwrap() {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(e) => match e.to_ascii_lowercase().as_str() {
             "zip" => {
                 if path.exists() {
                     FileType::Zip
@@ -29,7 +29,7 @@ pub fn detect(path: &Path) -> FileType {
         },
         None => {
             let s = path.to_string_lossy();
-            let is_hex = s.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'));
+            let is_hex = !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
             if is_hex {
                 FileType::Hash
             } else {

@@ -2,16 +2,14 @@
 //!
 //! For bruteforcing popular hashes. Will add more hashtypes soon.
 
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::util;
 use md5::{Digest, Md5};
 use rayon::prelude::*;
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tiger::Tiger;
 
-// For hashes
 /// Bruteforces the password for hashes like md5, Sha512, etc.
 ///
 /// # Examples
@@ -21,43 +19,74 @@ use tiger::Tiger;
 ///
 /// // ... rest of your code.
 /// match ettuh("5d41402abc4b2a76b9719d911017c592", "/path/to/passlist.txt") {
-///     Some(pass) => println!("Possible password: {}", pass),
-///     None => println!("Couldn't get password!")
+///     Ok(Some(pass)) => println!("Possible password: {}", pass),
+///     Ok(None) => println!("Couldn't get password!"),
+///     Err(e) => eprintln!("{}", e),
 /// };
 /// ```
-pub fn ettuh(query: &str, pass_list: &str) -> Option<String> {
-    let target_hex = query.trim();
-    let target: Vec<u8> = (0..target_hex.len())
+pub fn ettuh(query: &str, pass_list: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let target = parse_hash(query)?;
+
+    let (mmap, lines) = util::mmap_wordlist(pass_list)?;
+    let total = lines.len();
+
+    if total == 0 {
+        return Ok(None);
+    }
+
+    let bar = util::make_progress_bar(total as u64);
+    let processed = AtomicUsize::new(0);
+
+    let found = lines.par_iter().find_first(|&&(start, end)| {
+        let p = processed.fetch_add(1, Ordering::Relaxed);
+        if p & 0x1FF == 0 {
+            // update every ~512 passwords
+            bar.set_position(p as u64);
+        }
+
+        let pass = &mmap[start..end];
+        match target.len() {
+            16 => Md5::digest(pass).as_slice() == target.as_slice(),
+            20 => Sha1::digest(pass).as_slice() == target.as_slice(),
+            24 => Tiger::digest(pass).as_slice() == target.as_slice(),
+            28 => Sha224::digest(pass).as_slice() == target.as_slice(),
+            32 => Sha256::digest(pass).as_slice() == target.as_slice(),
+            48 => Sha384::digest(pass).as_slice() == target.as_slice(),
+            _ => Sha512::digest(pass).as_slice() == target.as_slice(),
+        }
+    });
+
+    bar.finish_and_clear();
+
+    Ok(found.map(|&(start, end)| {
+        std::str::from_utf8(&mmap[start..end])
+            .unwrap_or("<binary>")
+            .to_string()
+    }))
+}
+
+fn parse_hash(query: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let hex = query.trim();
+    if !hex.len().is_multiple_of(2) {
+        return Err(format!(
+            "Invalid hash: '{}' has an odd number of hex characters",
+            query
+        )
+        .into());
+    }
+
+    let target: Vec<u8> = (0..hex.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&target_hex[i..i + 2], 16).unwrap())
-        .collect();
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("Invalid hash: '{}' is not valid hexadecimal", query))?;
 
-    let reader = BufReader::new(
-        File::open(pass_list).expect("Error reading the file. Make sure its UTF-8 encoded!"),
-    );
-    let pass_list: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
-
-    let bar = ProgressBar::new(pass_list.len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar()
-            .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] ({eta})")
-            .unwrap(),
-    );
-
-    pass_list
-        .par_iter()
-        .find_first(|pass| {
-            bar.inc(1);
-            match target.len() {
-                16 => &*Md5::digest(pass.as_bytes()) == target.as_slice(),
-                20 => &*Sha1::digest(pass.as_bytes()) == target.as_slice(),
-                24 => &*Tiger::digest(pass.as_bytes()) == target.as_slice(),
-                28 => &*Sha224::digest(pass.as_bytes()) == target.as_slice(),
-                32 => &*Sha256::digest(pass.as_bytes()) == target.as_slice(),
-                48 => &*Sha384::digest(pass.as_bytes()) == target.as_slice(),
-                64 => &*Sha512::digest(pass.as_bytes()) == target.as_slice(),
-                _ => false,
-            }
-        })
-        .map(|pass| pass.to_string())
+    match target.len() {
+        16 | 20 | 24 | 28 | 32 | 48 | 64 => Ok(target),
+        n => Err(format!(
+            "Unsupported hash length: {} bytes (expected 16, 20, 24, 28, 32, 48 or 64)",
+            n
+        )
+        .into()),
+    }
 }

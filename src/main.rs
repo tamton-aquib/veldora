@@ -22,16 +22,18 @@ fn main() {
 
     let result = match cli::detect(path) {
         FileType::Zip => ettuz::ettuz(file_or_hash, pass_file),
-        FileType::Pdf => match ettup::ettup(file_or_hash, pass_file) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("{}", e);
-                Some(String::new())
-            }
-        },
+        FileType::Pdf => ettup::ettup(file_or_hash, pass_file),
         FileType::Hash => ettuh::ettuh(file_or_hash, pass_file),
-        FileType::NotSupported => Some("Filetype not supported!".to_string()),
-        FileType::NotFound => Some("Target file not Found!".to_string()),
+        FileType::NotSupported => Ok(Some("Filetype not supported!".to_string())),
+        FileType::NotFound => Ok(Some("Target file not Found!".to_string())),
+    };
+
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("{}", e);
+            Some(String::new())
+        }
     };
 
     match result {
