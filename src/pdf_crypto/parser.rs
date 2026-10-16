@@ -48,7 +48,10 @@ fn get_integer(dict: &Dictionary, key: &str) -> Result<i32, Box<dyn std::error::
 
 impl PdfCryptoContext {
     pub fn from_file(filename: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = std::fs::read(filename)?;
+        Self::from_bytes(std::fs::read(filename)?)
+    }
+
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self, Box<dyn std::error::Error>> {
         let start_offset = data.locate_start_offset()?;
         let (refs, trailer) = data.read_xref_table_and_trailer(start_offset)?;
         let storage = pdf::file::Storage::new(data, refs, start_offset);
@@ -85,10 +88,20 @@ impl PdfCryptoContext {
             .map(|s| s.data.clone())
             .unwrap_or_default();
 
+        // Follow the same inference rules as pdf.js: the top-level /Length is
+        // in bits; when it is missing, the crypt filter /Length is normally in
+        // bytes (e.g. 16) but some producers store bits (e.g. 128) there.
         let key_bits = if v_val >= 4 {
-            get_cf_length(&encrypt_dict, &storage)
-                .map(|n| n * 8)
-                .unwrap_or(128)
+            let top_level = encrypt_dict
+                .get("Length")
+                .and_then(|len| len.as_integer().ok())
+                .map(|len| len as u32);
+            match top_level {
+                Some(bits) => bits,
+                None => get_cf_length(&encrypt_dict, &storage)
+                    .map(|n| if n < 40 { n * 8 } else { n })
+                    .unwrap_or(if v_val >= 5 { 256 } else { 128 }),
+            }
         } else if v_val == 2 {
             encrypt_dict
                 .get("Length")
@@ -97,6 +110,16 @@ impl PdfCryptoContext {
                 .unwrap_or(40)
         } else {
             40
+        };
+
+        // Guard against malformed values: revisions up to 4 support 40 to 128
+        // bit keys, revision 5 and 6 use 256 bit keys. Anything else would
+        // overflow the key derivation buffers.
+        let max_bits = if v_val >= 5 { 256 } else { 128 };
+        let key_bits = if key_bits < 40 || key_bits % 8 != 0 || key_bits > max_bits {
+            max_bits
+        } else {
+            key_bits
         };
 
         let id_len = id.len().min(32);

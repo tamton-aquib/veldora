@@ -1,15 +1,12 @@
-use std::convert::TryInto;
-use sha2::{Digest, Sha256, Sha384, Sha512};
-use crate::pdf_crypto::md5::{md5_once, md5_round_50};
-use crate::pdf_crypto::rc4::rc4_encrypt;
 use crate::pdf_crypto::aes::aes_128_cbc_encrypt;
+use crate::pdf_crypto::md5::{md5_once, md5_round_50};
 use crate::pdf_crypto::parser::PdfCryptoContext;
+use crate::pdf_crypto::rc4::rc4_encrypt;
+use sha2::{Digest, Sha256, Sha384, Sha512};
 
 pub(crate) const PADDING: [u8; 32] = [
-    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
-    0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
-    0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,
-    0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
+    0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
 
 pub(crate) fn derive_key_user_init(pass: &[u8], ctx: &PdfCryptoContext) -> [u8; 16] {
@@ -63,7 +60,9 @@ pub(crate) fn derive_key_owner(pass: &[u8], ctx: &PdfCryptoContext) -> [u8; 16] 
 
     let mut hash = md5_once(&buf[..len]);
     if ctx.r >= 3 {
-        hash = md5_round_50(&hash, ctx.key_size);
+        // Algorithm 3.3 hashes the full 16-byte output each round; only the
+        // resulting key is later truncated to the key size.
+        hash = md5_round_50(&hash, 16);
     }
     hash
 }
@@ -89,6 +88,9 @@ pub(crate) fn compute_u_rev_3_4(id: &[u8], key: &[u8]) -> [u8; 16] {
 }
 
 pub(crate) fn hash_v5(password: &[u8], salt: &[u8; 8], udata: &[u8], r: u32) -> [u8; 32] {
+    // ISO 32000-2 truncates the password to 127 bytes before hashing.
+    let password = &password[..password.len().min(127)];
+
     if r == 5 {
         let mut hasher = Sha256::new();
         hasher.update(password);
