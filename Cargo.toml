@@ -23,6 +23,8 @@ rayon = "1.8.1"
 memmap2 = "0.9"
 flate2 = "1.0"
 aes = "0.8"
+hmac = "0.12"
+pbkdf2 = "0.12"
 
 [profile.optimized]
 inherits = "release"

@@ -16,8 +16,8 @@ use tiger::Tiger;
 ///
 /// # Examples
 ///
-/// ```
-/// use veldora::ettuh;
+/// ```no_run
+/// use veldora::ettuh::ettuh;
 ///
 /// // ... rest of your code.
 /// match ettuh("5d41402abc4b2a76b9719d911017c592", "/path/to/passlist.txt") {
