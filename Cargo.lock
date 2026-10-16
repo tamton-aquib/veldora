@@ -586,10 +586,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha-1"
-version = "0.10.0"
+name = "sha1"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "028f48d513f9678cda28f6e4064755b3fbb2af6acd672f2c209b62323f7aea0f"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -754,7 +754,7 @@ checksum = "3ed742d4ea2bd1176e236172c8429aaf54486e7ac098db29ffe6529e0ce50973"
 
 [[package]]
 name = "veldora"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aes 0.8.4",
  "colored",
@@ -767,8 +767,9 @@ dependencies = [
  "pbkdf2",
  "pdf",
  "rayon",
- "sha-1",
+ "sha1",
  "sha2 0.10.2",
+ "stringprep",
  "tiger",
 ]
 

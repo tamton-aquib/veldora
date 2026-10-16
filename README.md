@@ -28,6 +28,11 @@ veldora secure.pdf ~/Downloads/password_list.txt
 ```
 > Make sure `$HOME/.cargo/` is in path.
 
+### Supported formats:
+- **ZIP**: PKWARE traditional encryption (ZipCrypto) and WinZip AES (AE-1/AE-2, 128/192/256-bit keys)
+- **PDF**: revisions 2 to 6 (RC4 40/128-bit, AES-128 and AES-256)
+- **Hashes**: MD5, SHA-1, Tiger, SHA-224, SHA-256, SHA-384, SHA-512
+
 ![veldora](https://user-images.githubusercontent.com/77913442/206756044-17d50402-7c5b-49e1-8047-acbc2c7dd288.gif)
 
 ### Notes:
@@ -38,9 +43,10 @@ veldora secure.pdf ~/Downloads/password_list.txt
 ### TODOS:
 - [x] Code cleaning and pretty error messages.
 - [x] Add to crates.io
-- [ ] Add concurrency (with rayon)
-- [ ] Add support for other filetypes like rar.
+- [x] Add concurrency (with rayon)
+- [x] Add tests for the ZIP and PDF cracking paths.
+- [x] Solve unicode error when reading some password lists.
+- [ ] Add support for other filetypes like rar and 7z.
 - [ ] Add more hashtypes (bcrypt, whirpool, etc)
-- [ ] Add tests for each.
+- [ ] Add tests for each hash type.
 - [ ] hash mode breaking for zip and pdf. (would get super fast)
-- [ ] Solve unicode error when reading some password lists.

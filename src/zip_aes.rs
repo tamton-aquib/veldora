@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn pbkdf2_matches_reference_vector() {
+    fn pbkdf2_matches_known_vector() {
         let mut out = [0u8; 32];
         pbkdf2_hmac::<Sha1>(b"password", b"salt", 1000, &mut out);
         assert_eq!(

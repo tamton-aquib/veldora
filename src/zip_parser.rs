@@ -1,6 +1,5 @@
 use crate::zip_aes::AesContext;
 use crate::zip_crypto::ZipCryptoContext;
-use std::convert::TryInto;
 
 pub(crate) enum ZipEncryption {
     Traditional(ZipCryptoContext),
@@ -91,7 +90,7 @@ fn find_eocd(data: &[u8]) -> Option<usize> {
     if len < 22 {
         return None;
     }
-    let search_start = if len > 65557 { len - 65557 } else { 0 };
+    let search_start = len.saturating_sub(65557);
     for i in (search_start..len - 21).rev() {
         if u32::from_le_bytes(data[i..i + 4].try_into().unwrap_or([0u8; 4])) == END_CENTRAL_DIR_SIG
         {
@@ -214,20 +213,17 @@ fn extract_aes_info(
 ) -> Option<AesContext> {
     let filename_len = hdr.filename_len as usize;
     let extra_start = entry_offset + 30 + filename_len;
-    let (version, strength, _method) = match find_aes_extra_field(
-        data,
-        extra_start,
-        hdr.extra_len as usize,
-    ) {
-        Some(info) => info,
-        None => {
-            eprintln!(
-                "ZIP uses strong encryption but has no WinZip AES extra field \
+    let (version, strength, _method) =
+        match find_aes_extra_field(data, extra_start, hdr.extra_len as usize) {
+            Some(info) => info,
+            None => {
+                eprintln!(
+                    "ZIP uses strong encryption but has no WinZip AES extra field \
                  (PKWARE strong encryption is not supported)."
-            );
-            return None;
-        }
-    };
+                );
+                return None;
+            }
+        };
 
     if version != 1 && version != 2 {
         eprintln!("Unsupported WinZip AES version: {version}");

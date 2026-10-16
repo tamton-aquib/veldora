@@ -1,8 +1,8 @@
 #[inline(always)]
 pub(crate) fn rc4_encrypt(key: &[u8], data: &mut [u8]) {
     let mut state = [0u8; 256];
-    for i in 0..256 {
-        state[i] = i as u8;
+    for (i, s) in state.iter_mut().enumerate() {
+        *s = i as u8;
     }
     let mut j: u8 = 0;
     for i in 0..256 {

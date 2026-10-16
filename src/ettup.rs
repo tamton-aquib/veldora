@@ -1,5 +1,5 @@
-use crate::util;
 use crate::pdf_crypto::PdfCryptoContext;
+use crate::util;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

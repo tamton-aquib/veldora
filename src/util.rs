@@ -2,7 +2,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::Mmap;
 use std::fs::File;
 
-pub fn collect_line_offsets(data: &[u8]) -> Vec<(usize, usize)> {
+pub type LineOffsets = Vec<(usize, usize)>;
+
+pub fn collect_line_offsets(data: &[u8]) -> LineOffsets {
     let mut offsets = Vec::new();
     let mut start = 0;
     for (i, &b) in data.iter().enumerate() {
@@ -22,9 +24,7 @@ pub fn collect_line_offsets(data: &[u8]) -> Vec<(usize, usize)> {
     offsets
 }
 
-pub fn mmap_wordlist(
-    path: &str,
-) -> Result<(Mmap, Vec<(usize, usize)>), Box<dyn std::error::Error>> {
+pub fn mmap_wordlist(path: &str) -> Result<(Mmap, LineOffsets), Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let mmap = unsafe { Mmap::map(&file)? };
     let lines = collect_line_offsets(&mmap);

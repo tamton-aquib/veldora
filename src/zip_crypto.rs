@@ -77,8 +77,8 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
 
     // Phase 1: decrypt 12-byte header, check byte 11
     let mut buf = [0u8; 12];
-    for i in 0..12 {
-        buf[i] = keys.decrypt(ctx.enc_header[i]);
+    for (plain, &cipher) in buf.iter_mut().zip(ctx.enc_header.iter()) {
+        *plain = keys.decrypt(cipher);
     }
     if buf[11] != ctx.check_byte {
         return false;
