@@ -9,7 +9,7 @@ pub(crate) fn aes_128_cbc_encrypt(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) ->
     let mut buf = data.to_vec();
     let cipher = Aes128::new_from_slice(key).unwrap();
     let mut prev = Block16::clone_from_slice(iv);
-    for chunk in buf.chunks_exact_mut(16) {
+    for chunk in buf.as_chunks_mut::<16>().0 {
         let block = GenericArray::from_mut_slice(chunk);
         for i in 0..16 {
             block[i] ^= prev[i];
