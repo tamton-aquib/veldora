@@ -278,7 +278,7 @@ fn extract_aes_info(
         salt,
         verifier,
         auth_code,
-        ciphertext: data[ciphertext_start..ciphertext_end].to_vec(),
+        ciphertext: ciphertext_start..ciphertext_end,
         key_len,
     })
 }
@@ -305,13 +305,13 @@ pub(crate) fn extract_zip_info(data: &[u8]) -> Option<ZipEncryption> {
 
     // Extract encrypted payload (after the 12-byte header)
     let payload_start = entry_offset + header_size + 12;
-    let encrypted_payload = if hdr.compressed_size > 12 {
+    let payload = if hdr.compressed_size > 12 {
         let payload_len = hdr.compressed_size as usize - 12;
-        data[payload_start..payload_start + payload_len].to_vec()
+        payload_start..payload_start + payload_len
     } else {
         // Data descriptor or unreliable size; scan to next entry
         let next = find_next_local_header(data, payload_start)?;
-        data[payload_start..next].to_vec()
+        payload_start..next
     };
 
     // CRC and time from central directory (matched by entry index)
@@ -331,7 +331,7 @@ pub(crate) fn extract_zip_info(data: &[u8]) -> Option<ZipEncryption> {
 
     Some(ZipEncryption::Traditional(ZipCryptoContext {
         enc_header,
-        encrypted_payload,
+        payload,
         check_byte,
         stored_crc,
         compression_method,

@@ -1,16 +1,17 @@
+use crate::sha1x4::LANES;
 use crate::util;
-use crate::zip_aes::verify_password_aes;
-use crate::zip_crypto::verify_password_full;
+use crate::zip_aes::verify_passwords_aes;
+use crate::zip_crypto::{verify_with_keys, PkwareKeyCache};
 use crate::zip_parser::{extract_zip_info, ZipEncryption};
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub fn ettuz(
     filename: &str,
     pass_list: &str,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    // Pre-extract ZIP data once — zero I/O during cracking
-    let zip_data = std::fs::read(filename)?;
+    // The archive stays memory mapped; the contexts only hold byte ranges.
+    let zip_data = util::map_file(filename)?;
     let encryption = match extract_zip_info(&zip_data) {
         Some(encryption) => encryption,
         None => {
@@ -20,39 +21,101 @@ pub fn ettuz(
             );
         }
     };
-    drop(zip_data);
 
-    // mmap wordlist — zero-copy line access
-    let (mmap, lines) = util::mmap_wordlist(pass_list)?;
-    let total = lines.len();
+    let wordlist = util::Wordlist::open(pass_list)?;
+    if wordlist.is_empty() {
+        return Ok(None);
+    }
 
-    let bar = util::make_progress_bar(total as u64);
-
+    let bar = util::make_progress_bar(wordlist.len() as u64);
+    let found_flag = AtomicBool::new(false);
     let processed = AtomicUsize::new(0);
-    let found = lines.par_chunks(512).find_map_first(|chunk| {
-        let done = processed.fetch_add(chunk.len(), Ordering::Relaxed) + chunk.len();
-        bar.set_position(done as u64);
 
-        for &(start, end) in chunk.iter() {
-            let pass = &mmap[start..end];
-            let matched = match &encryption {
-                ZipEncryption::Traditional(ctx) => verify_password_full(pass, ctx),
-                ZipEncryption::Aes(ctx) => verify_password_aes(pass, ctx),
-            };
-            if matched {
-                return Some((start, end));
+    let found = (0..wordlist.num_blocks())
+        .into_par_iter()
+        .find_map_first(|block_index| {
+            let (block_start, block_end) = wordlist.block(block_index);
+            let mut reported = block_start;
+
+            // Per line bookkeeping: stop when another block found a password,
+            // and advance the progress bar every 512 lines.
+            macro_rules! tick {
+                ($counter:expr, $end:expr) => {{
+                    if $counter & 0x1FF == 0 {
+                        if found_flag.load(Ordering::Relaxed) {
+                            return None;
+                        }
+                        let delta = $end - reported;
+                        let done = processed.fetch_add(delta, Ordering::Relaxed) + delta;
+                        bar.set_position(done as u64);
+                        reported = $end;
+                    }
+                }};
             }
-        }
-        None
-    });
+
+            match &encryption {
+                ZipEncryption::Traditional(ctx) => {
+                    let mut key_cache = PkwareKeyCache::new();
+                    for (counter, (start, end)) in
+                        wordlist.lines(block_start, block_end).enumerate()
+                    {
+                        tick!(counter, end);
+                        let pass = &wordlist.bytes()[start..end];
+                        if verify_with_keys(key_cache.keys_for(pass), ctx, &zip_data) {
+                            found_flag.store(true, Ordering::Relaxed);
+                            return Some((start, end));
+                        }
+                    }
+                }
+                ZipEncryption::Aes(ctx) => {
+                    let mut pending: [(usize, usize); LANES] = [(0, 0); LANES];
+                    let mut pending_len = 0usize;
+                    for (counter, (start, end)) in
+                        wordlist.lines(block_start, block_end).enumerate()
+                    {
+                        tick!(counter, end);
+                        pending[pending_len] = (start, end);
+                        pending_len += 1;
+
+                        if pending_len == LANES {
+                            let bytes = wordlist.bytes();
+                            let refs = [
+                                &bytes[pending[0].0..pending[0].1],
+                                &bytes[pending[1].0..pending[1].1],
+                                &bytes[pending[2].0..pending[2].1],
+                                &bytes[pending[3].0..pending[3].1],
+                            ];
+                            let hits = verify_passwords_aes(&refs, ctx, &zip_data);
+                            if let Some(lane) = hits.iter().position(|&hit| hit) {
+                                found_flag.store(true, Ordering::Relaxed);
+                                return Some(pending[lane]);
+                            }
+                            pending_len = 0;
+                        }
+                    }
+
+                    // Flush the last partial batch (padding slots never match
+                    // in practice and are ignored when reading the flags).
+                    if pending_len > 0 {
+                        let bytes = wordlist.bytes();
+                        let mut refs: [&[u8]; LANES] = [&[]; LANES];
+                        for (lane, &(start, end)) in pending[..pending_len].iter().enumerate() {
+                            refs[lane] = &bytes[start..end];
+                        }
+                        let hits = verify_passwords_aes(&refs, ctx, &zip_data);
+                        if let Some(lane) = (0..pending_len).find(|&lane| hits[lane]) {
+                            found_flag.store(true, Ordering::Relaxed);
+                            return Some(pending[lane]);
+                        }
+                    }
+                }
+            }
+
+            processed.fetch_add(block_end - reported, Ordering::Relaxed);
+            None
+        });
 
     bar.finish_and_clear();
 
-    Ok(match found {
-        Some((start, end)) => {
-            let pass = std::str::from_utf8(&mmap[start..end]).unwrap_or("<binary>");
-            Some(pass.to_string())
-        }
-        None => None,
-    })
+    Ok(found.map(|(start, end)| wordlist.text(start, end).to_string()))
 }

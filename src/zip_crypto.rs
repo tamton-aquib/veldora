@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 pub(crate) const CRC32_TABLE: [u32; 256] = {
     let mut table = [0u32; 256];
     let mut i = 0;
@@ -22,19 +24,27 @@ fn crc32_byte(crc: u32, byte: u8) -> u32 {
     CRC32_TABLE[((crc as u8) ^ byte) as usize] ^ (crc >> 8)
 }
 
-struct PkwareKeys {
+#[derive(Clone, Copy)]
+pub(crate) struct PkwareKeys {
     k0: u32,
     k1: u32,
     k2: u32,
 }
 
 impl PkwareKeys {
-    fn new(password: &[u8]) -> Self {
-        let mut k = PkwareKeys {
+    fn initial() -> Self {
+        PkwareKeys {
             k0: 0x12345678,
             k1: 0x23456789,
             k2: 0x34567890,
-        };
+        }
+    }
+
+    /// Test-only convenience: derives the key state for a fresh password
+    /// without the prefix cache.
+    #[cfg(test)]
+    fn new(password: &[u8]) -> Self {
+        let mut k = Self::initial();
         for &b in password {
             k.update(b);
         }
@@ -60,17 +70,58 @@ impl PkwareKeys {
     }
 }
 
+/// Caches PKWARE key states so consecutive wordlist entries can resume from
+/// their longest common prefix instead of replaying the whole password.
+pub(crate) struct PkwareKeyCache {
+    stack: Vec<(u8, PkwareKeys)>,
+}
+
+impl PkwareKeyCache {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::with_capacity(64),
+        }
+    }
+
+    /// Returns the key state for `password`.
+    pub fn keys_for(&mut self, password: &[u8]) -> PkwareKeys {
+        let mut common = 0;
+        while common < self.stack.len()
+            && common < password.len()
+            && self.stack[common].0 == password[common]
+        {
+            common += 1;
+        }
+        self.stack.truncate(common);
+
+        let mut keys = self
+            .stack
+            .last()
+            .map(|&(_, keys)| keys)
+            .unwrap_or_else(PkwareKeys::initial);
+        for &byte in &password[common..] {
+            keys.update(byte);
+            self.stack.push((byte, keys));
+        }
+        keys
+    }
+}
+
 pub(crate) struct ZipCryptoContext {
     pub enc_header: [u8; 12],
-    pub encrypted_payload: Vec<u8>,
+    /// Byte range of the encrypted payload within the archive buffer.
+    pub payload: Range<usize>,
     pub check_byte: u8,
     pub stored_crc: u32,
     pub compression_method: u16,
 }
 
-pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> bool {
-    let mut keys = PkwareKeys::new(password);
+#[cfg(test)]
+pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext, data: &[u8]) -> bool {
+    verify_with_keys(PkwareKeys::new(password), ctx, data)
+}
 
+pub(crate) fn verify_with_keys(mut keys: PkwareKeys, ctx: &ZipCryptoContext, data: &[u8]) -> bool {
     // Phase 1: decrypt 12-byte header, check byte 11
     let mut buf = [0u8; 12];
     for (plain, &cipher) in buf.iter_mut().zip(ctx.enc_header.iter()) {
@@ -80,6 +131,8 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
         return false;
     }
 
+    let payload = &data[ctx.payload.clone()];
+
     // Phase 2: decrypt the payload incrementally so the CRC can be updated in
     // the same pass. Only 1 in 256 wrong passwords reach this point; entries
     // whose deflate stream is corrupt are rejected after the first bytes
@@ -87,7 +140,7 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
     match ctx.compression_method {
         0 => {
             let mut crc = 0xFFFFFFFFu32;
-            for &cipher in &ctx.encrypted_payload {
+            for &cipher in payload {
                 crc = crc32_byte(crc, keys.decrypt(cipher));
             }
             crc ^ 0xFFFFFFFF == ctx.stored_crc
@@ -101,12 +154,9 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
             let mut buf = [0u8; 4096];
             let mut pos = 0;
 
-            while pos < ctx.encrypted_payload.len() {
-                let n = (ctx.encrypted_payload.len() - pos).min(buf.len());
-                for (plain, &cipher) in buf[..n]
-                    .iter_mut()
-                    .zip(&ctx.encrypted_payload[pos..pos + n])
-                {
+            while pos < payload.len() {
+                let n = (payload.len() - pos).min(buf.len());
+                for (plain, &cipher) in buf[..n].iter_mut().zip(&payload[pos..pos + n]) {
                     *plain = keys.decrypt(cipher);
                 }
                 pos += n;
@@ -144,5 +194,35 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
             false
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_cache_matches_direct_derivation() {
+        let mut cache = PkwareKeyCache::new();
+        let passwords: &[&[u8]] = &[
+            b"",
+            b"a",
+            b"ab",
+            b"abc",
+            b"abc",
+            b"abx",
+            b"abd",
+            b"abc",
+            b"z",
+            b"abcdefghijklmnopqrstuvwxyz",
+            b"abcdefghijklmnopqrstuvwxyza",
+        ];
+        for &password in passwords {
+            let cached = cache.keys_for(password);
+            let direct = PkwareKeys::new(password);
+            assert_eq!(cached.k0, direct.k0);
+            assert_eq!(cached.k1, direct.k1);
+            assert_eq!(cached.k2, direct.k2);
+        }
     }
 }

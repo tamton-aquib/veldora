@@ -1,36 +1,161 @@
+use crate::sha1x4::{compress4, LANES};
 use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2_hmac;
-use sha1::Sha1;
+use sha1::{Digest, Sha1};
+use std::ops::Range;
 
 /// Everything needed to check passwords of a WinZip AES (AE-1/AE-2) entry.
 pub(crate) struct AesContext {
     pub salt: Vec<u8>,
     pub verifier: [u8; 2],
     pub auth_code: [u8; 10],
-    pub ciphertext: Vec<u8>,
+    /// Byte range of the encrypted data within the archive buffer.
+    pub ciphertext: Range<usize>,
     pub key_len: usize,
 }
 
 /// Fixed by the WinZip AES specification (AE-1/AE-2).
 const PBKDF2_ROUNDS: u32 = 1000;
 
+const SHA1_IV: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+
+/// Checks `LANES` passwords at once; the returned flags are per input slot.
+///
+/// The PBKDF2 chains of the candidates are independent, so they are advanced
+/// in lockstep through the four-way SHA-1 compression function.
+pub(crate) fn verify_passwords_aes(
+    passwords: &[&[u8]; LANES],
+    ctx: &AesContext,
+    data: &[u8],
+) -> [bool; LANES] {
+    let dk_len = 2 * ctx.key_len + 2;
+
+    // HMAC-SHA1 pad midstates, two compressions per candidate.
+    let mut ipad_states = [SHA1_IV; LANES];
+    let mut opad_states = [SHA1_IV; LANES];
+    let mut ipad_blocks = [[0u8; 64]; LANES];
+    let mut opad_blocks = [[0u8; 64]; LANES];
+    for lane in 0..LANES {
+        let key = normalize_hmac_key(passwords[lane]);
+        for i in 0..64 {
+            ipad_blocks[lane][i] = key[i] ^ 0x36;
+            opad_blocks[lane][i] = key[i] ^ 0x5c;
+        }
+    }
+    compress4(&mut ipad_states, &ipad_blocks);
+    compress4(&mut opad_states, &opad_blocks);
+
+    // PBKDF2-HMAC-SHA1, all candidates in lockstep.
+    let mut derived = [[0u8; 2 * 32 + 2]; LANES];
+    let block_count = dk_len.div_ceil(20);
+    for block_index in 0..block_count {
+        let mut seed_blocks = [[0u8; 64]; LANES];
+        for seed in seed_blocks.iter_mut() {
+            let mut message = [0u8; 20];
+            message[..ctx.salt.len()].copy_from_slice(&ctx.salt);
+            message[ctx.salt.len()..ctx.salt.len() + 4]
+                .copy_from_slice(&(block_index as u32 + 1).to_be_bytes());
+            *seed = tail_block(&message[..ctx.salt.len() + 4]);
+        }
+
+        let mut u = {
+            let inner = compress_lanes(&ipad_states, &seed_blocks);
+            compress_lanes(&opad_states, &pad_blocks(&inner))
+        };
+        let mut acc = u;
+
+        for _ in 1..PBKDF2_ROUNDS {
+            let inner = compress_lanes(&ipad_states, &pad_blocks(&u));
+            u = compress_lanes(&opad_states, &pad_blocks(&inner));
+            for lane in 0..LANES {
+                for (a, b) in acc[lane].iter_mut().zip(u[lane].iter()) {
+                    *a ^= b;
+                }
+            }
+        }
+
+        let start = block_index * 20;
+        let n = (dk_len - start).min(20);
+        for lane in 0..LANES {
+            derived[lane][start..start + n].copy_from_slice(&acc[lane][..n]);
+        }
+    }
+
+    let mut results = [false; LANES];
+    for (lane, result) in results.iter_mut().enumerate() {
+        let dk = &derived[lane][..dk_len];
+        if dk[2 * ctx.key_len..] == ctx.verifier {
+            *result = confirm_mac(&dk[ctx.key_len..2 * ctx.key_len], ctx, data);
+        }
+    }
+    results
+}
+
+/// HMAC key normalization: keys longer than the block size are hashed first.
+fn normalize_hmac_key(password: &[u8]) -> [u8; 64] {
+    let mut key = [0u8; 64];
+    if password.len() > 64 {
+        key[..20].copy_from_slice(&Sha1::digest(password));
+    } else {
+        key[..password.len()].copy_from_slice(password);
+    }
+    key
+}
+
+/// Final padded block for a message whose first 64 bytes are already absorbed
+/// into a midstate.
 #[inline]
-pub(crate) fn verify_password_aes(password: &[u8], ctx: &AesContext) -> bool {
-    // Derived material: [aes key][hmac key][2-byte password verifier]
+fn tail_block(message: &[u8]) -> [u8; 64] {
+    debug_assert!(message.len() <= 55);
+    let mut block = [0u8; 64];
+    block[..message.len()].copy_from_slice(message);
+    block[message.len()] = 0x80;
+    let bit_len = ((64 + message.len()) as u64) * 8;
+    block[56..].copy_from_slice(&bit_len.to_be_bytes());
+    block
+}
+
+#[inline]
+fn pad_blocks(digests: &[[u8; 20]; LANES]) -> [[u8; 64]; LANES] {
+    let mut blocks = [[0u8; 64]; LANES];
+    for (block, digest) in blocks.iter_mut().zip(digests.iter()) {
+        *block = tail_block(digest);
+    }
+    blocks
+}
+
+#[inline]
+fn compress_lanes(states: &[[u32; 5]; LANES], blocks: &[[u8; 64]; LANES]) -> [[u8; 20]; LANES] {
+    let mut states = *states;
+    compress4(&mut states, blocks);
+    let mut digests = [[0u8; 20]; LANES];
+    for (digest, state) in digests.iter_mut().zip(states.iter()) {
+        for (chunk, word) in digest.chunks_mut(4).zip(state.iter()) {
+            chunk.copy_from_slice(&word.to_be_bytes());
+        }
+    }
+    digests
+}
+
+/// Confirms a verifier hit against the truncated HMAC-SHA1 auth code.
+fn confirm_mac(mac_key: &[u8], ctx: &AesContext, data: &[u8]) -> bool {
+    let mut mac = Hmac::<Sha1>::new_from_slice(mac_key).expect("HMAC accepts any key length");
+    mac.update(&data[ctx.ciphertext.clone()]);
+    mac.finalize().into_bytes()[..10] == ctx.auth_code
+}
+
+/// Single-candidate reference implementation, used by the tests to check the
+/// batched path against a well known crate.
+#[cfg(test)]
+pub(crate) fn verify_password_aes(password: &[u8], ctx: &AesContext, data: &[u8]) -> bool {
     let mut derived = [0u8; 2 * 32 + 2];
     let dk_len = 2 * ctx.key_len + 2;
-    pbkdf2_hmac::<Sha1>(password, &ctx.salt, PBKDF2_ROUNDS, &mut derived[..dk_len]);
+    pbkdf2::pbkdf2_hmac::<Sha1>(password, &ctx.salt, PBKDF2_ROUNDS, &mut derived[..dk_len]);
 
     let mac_key = &derived[ctx.key_len..2 * ctx.key_len];
     if derived[2 * ctx.key_len..dk_len] != ctx.verifier {
         return false;
     }
-
-    // The 2-byte verifier gives a 1-in-65536 false positive rate, so confirm
-    // the match against the truncated HMAC-SHA1 authentication code.
-    let mut mac = Hmac::<Sha1>::new_from_slice(mac_key).expect("HMAC accepts any key length");
-    mac.update(&ctx.ciphertext);
-    mac.finalize().into_bytes()[..10] == ctx.auth_code
+    confirm_mac(mac_key, ctx, data)
 }
 
 #[cfg(test)]
@@ -77,8 +202,8 @@ mod tests {
         "010001005b000000450000000000",
     );
 
-    fn aes_context(hex: &str) -> AesContext {
-        match extract_zip_info(&decode_hex(hex)) {
+    fn aes_context(data: &[u8]) -> AesContext {
+        match extract_zip_info(data) {
             Some(ZipEncryption::Aes(ctx)) => ctx,
             _ => panic!("expected an AES-encrypted zip"),
         }
@@ -87,7 +212,7 @@ mod tests {
     #[test]
     fn pbkdf2_matches_known_vector() {
         let mut out = [0u8; 32];
-        pbkdf2_hmac::<Sha1>(b"password", b"salt", 1000, &mut out);
+        pbkdf2::pbkdf2_hmac::<Sha1>(b"password", b"salt", 1000, &mut out);
         assert_eq!(
             out.to_vec(),
             decode_hex("6e88be8bad7eae9d9e10aa061224034fed48d03fcbad968b56006784539d5214")
@@ -95,24 +220,86 @@ mod tests {
     }
 
     #[test]
+    fn batched_verification_matches_single() {
+        let data = decode_hex(AES256_ZIP);
+        let ctx = aes_context(&data);
+        let long = vec![b'k'; 100];
+        let passwords: [&[u8]; LANES] = [b"secret", long.as_slice(), b"", b"sec"];
+        let hits = verify_passwords_aes(&passwords, &ctx, &data);
+        for (lane, password) in passwords.iter().enumerate() {
+            assert_eq!(
+                hits[lane],
+                verify_password_aes(password, &ctx, &data),
+                "lane {lane}"
+            );
+        }
+        assert!(hits[0]);
+        assert!(!hits[1] && !hits[2] && !hits[3]);
+    }
+
+    #[test]
+    fn batched_pbkdf2_matches_reference_for_all_key_sizes() {
+        for key_len in [16usize, 24, 32] {
+            for salt_len in [8usize, 12, 16] {
+                let salt: Vec<u8> = (0..salt_len as u8)
+                    .map(|b| b.wrapping_mul(37).wrapping_add(3))
+                    .collect();
+                for password in [b"secret".as_slice(), b"".as_slice(), &[b'x'; 100]] {
+                    let dk_len = 2 * key_len + 2;
+                    let mut reference = vec![0u8; dk_len];
+                    pbkdf2::pbkdf2_hmac::<Sha1>(password, &salt, 1000, &mut reference);
+
+                    let ciphertext = [0u8; 8];
+                    let mut mac =
+                        Hmac::<Sha1>::new_from_slice(&reference[key_len..2 * key_len]).unwrap();
+                    mac.update(&ciphertext);
+                    let tag = mac.finalize().into_bytes();
+
+                    let ctx = AesContext {
+                        salt: salt.clone(),
+                        verifier: [reference[2 * key_len], reference[2 * key_len + 1]],
+                        auth_code: tag[..10].try_into().unwrap(),
+                        ciphertext: 0..ciphertext.len(),
+                        key_len,
+                    };
+
+                    let hits = verify_passwords_aes(
+                        &[password, b"nope", b"nope2", b"nope3"],
+                        &ctx,
+                        &ciphertext,
+                    );
+                    assert!(
+                        hits[0],
+                        "key_len={key_len} salt_len={salt_len} pw={password:?}"
+                    );
+                    assert!(!hits[1] && !hits[2] && !hits[3]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn cracks_aes128_zip() {
-        let ctx = aes_context(AES128_ZIP);
-        assert!(verify_password_aes(b"secret", &ctx));
-        assert!(!verify_password_aes(b"secret!", &ctx));
+        let data = decode_hex(AES128_ZIP);
+        let ctx = aes_context(&data);
+        assert!(verify_password_aes(b"secret", &ctx, &data));
+        assert!(!verify_password_aes(b"secret!", &ctx, &data));
     }
 
     #[test]
     fn cracks_aes192_zip() {
-        let ctx = aes_context(AES192_ZIP);
-        assert!(verify_password_aes(b"secret", &ctx));
-        assert!(!verify_password_aes(b"secret!", &ctx));
+        let data = decode_hex(AES192_ZIP);
+        let ctx = aes_context(&data);
+        assert!(verify_password_aes(b"secret", &ctx, &data));
+        assert!(!verify_password_aes(b"secret!", &ctx, &data));
     }
 
     #[test]
     fn cracks_aes256_zip() {
-        let ctx = aes_context(AES256_ZIP);
-        assert!(verify_password_aes(b"secret", &ctx));
-        assert!(!verify_password_aes(b"secret!", &ctx));
+        let data = decode_hex(AES256_ZIP);
+        let ctx = aes_context(&data);
+        assert!(verify_password_aes(b"secret", &ctx, &data));
+        assert!(!verify_password_aes(b"secret!", &ctx, &data));
     }
 
     #[test]
@@ -123,17 +310,20 @@ mod tests {
         data[6] |= 1 << 3;
         data[18..22].copy_from_slice(&[0, 0, 0, 0]);
         match extract_zip_info(&data) {
-            Some(ZipEncryption::Aes(ctx)) => assert!(verify_password_aes(b"secret", &ctx)),
+            Some(ZipEncryption::Aes(ctx)) => {
+                assert!(verify_password_aes(b"secret", &ctx, &data));
+            }
             _ => panic!("expected an AES-encrypted zip"),
         }
     }
 
     #[test]
     fn cracks_pkware_zipcrypto_zip() {
-        match extract_zip_info(&decode_hex(ZIPCRYPTO_ZIP)) {
+        let data = decode_hex(ZIPCRYPTO_ZIP);
+        match extract_zip_info(&data) {
             Some(ZipEncryption::Traditional(ctx)) => {
-                assert!(verify_password_full(b"secret", &ctx));
-                assert!(!verify_password_full(b"wrong", &ctx));
+                assert!(verify_password_full(b"secret", &ctx, &data));
+                assert!(!verify_password_full(b"wrong", &ctx, &data));
             }
             _ => panic!("expected a traditional PKWARE encrypted zip"),
         }
@@ -143,11 +333,11 @@ mod tests {
     fn cracks_pkware_zipcrypto_deflate_zip() {
         // Deflate entry with a data descriptor, generated with Info-ZIP `zip`
         // (user = "secret"); the payload spans several decrypt chunks.
-        let data = include_bytes!("../tests/fixtures/zipcrypto_deflate.zip");
+        let data: &[u8] = include_bytes!("../tests/fixtures/zipcrypto_deflate.zip");
         match extract_zip_info(data) {
             Some(ZipEncryption::Traditional(ctx)) => {
-                assert!(verify_password_full(b"secret", &ctx));
-                assert!(!verify_password_full(b"wrong", &ctx));
+                assert!(verify_password_full(b"secret", &ctx, data));
+                assert!(!verify_password_full(b"wrong", &ctx, data));
             }
             _ => panic!("expected a traditional PKWARE encrypted zip"),
         }

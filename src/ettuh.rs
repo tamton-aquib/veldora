@@ -7,7 +7,7 @@ use md5::{Digest, Md5};
 use rayon::prelude::*;
 use sha1::Sha1;
 use sha2::{Sha224, Sha256, Sha384, Sha512};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tiger::Tiger;
 
 /// Bruteforces the password for hashes like md5, Sha512, etc.
@@ -27,45 +27,56 @@ use tiger::Tiger;
 pub fn ettuh(query: &str, pass_list: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let target = parse_hash(query)?;
 
-    let (mmap, lines) = util::mmap_wordlist(pass_list)?;
-    let total = lines.len();
-
-    if total == 0 {
+    let wordlist = util::Wordlist::open(pass_list)?;
+    if wordlist.is_empty() {
         return Ok(None);
     }
 
-    let bar = util::make_progress_bar(total as u64);
+    let bar = util::make_progress_bar(wordlist.len() as u64);
+    let found_flag = AtomicBool::new(false);
     let processed = AtomicUsize::new(0);
 
-    let found = lines.par_chunks(512).find_map_first(|chunk| {
-        let done = processed.fetch_add(chunk.len(), Ordering::Relaxed) + chunk.len();
-        bar.set_position(done as u64);
+    let found = (0..wordlist.num_blocks())
+        .into_par_iter()
+        .find_map_first(|block_index| {
+            let (block_start, block_end) = wordlist.block(block_index);
+            let mut reported = block_start;
 
-        for &(start, end) in chunk.iter() {
-            let pass = &mmap[start..end];
-            let matched = match target.len() {
-                16 => Md5::digest(pass).as_slice() == target.as_slice(),
-                20 => Sha1::digest(pass).as_slice() == target.as_slice(),
-                24 => Tiger::digest(pass).as_slice() == target.as_slice(),
-                28 => Sha224::digest(pass).as_slice() == target.as_slice(),
-                32 => Sha256::digest(pass).as_slice() == target.as_slice(),
-                48 => Sha384::digest(pass).as_slice() == target.as_slice(),
-                _ => Sha512::digest(pass).as_slice() == target.as_slice(),
-            };
-            if matched {
-                return Some((start, end));
+            for (counter, (start, end)) in wordlist.lines(block_start, block_end).enumerate() {
+                // Check for a match in another block every 512 lines so the
+                // remaining candidates are not paid for.
+                if counter & 0x1FF == 0 {
+                    if found_flag.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let delta = end - reported;
+                    let done = processed.fetch_add(delta, Ordering::Relaxed) + delta;
+                    bar.set_position(done as u64);
+                    reported = end;
+                }
+
+                let pass = &wordlist.bytes()[start..end];
+                let matched = match target.len() {
+                    16 => Md5::digest(pass).as_slice() == target.as_slice(),
+                    20 => Sha1::digest(pass).as_slice() == target.as_slice(),
+                    24 => Tiger::digest(pass).as_slice() == target.as_slice(),
+                    28 => Sha224::digest(pass).as_slice() == target.as_slice(),
+                    32 => Sha256::digest(pass).as_slice() == target.as_slice(),
+                    48 => Sha384::digest(pass).as_slice() == target.as_slice(),
+                    _ => Sha512::digest(pass).as_slice() == target.as_slice(),
+                };
+                if matched {
+                    found_flag.store(true, Ordering::Relaxed);
+                    return Some((start, end));
+                }
             }
-        }
-        None
-    });
+            processed.fetch_add(block_end - reported, Ordering::Relaxed);
+            None
+        });
 
     bar.finish_and_clear();
 
-    Ok(found.map(|(start, end)| {
-        std::str::from_utf8(&mmap[start..end])
-            .unwrap_or("<binary>")
-            .to_string()
-    }))
+    Ok(found.map(|(start, end)| wordlist.text(start, end).to_string()))
 }
 
 fn parse_hash(query: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
