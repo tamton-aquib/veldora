@@ -1,4 +1,4 @@
-use crate::sha1x4::{compress4, LANES};
+use crate::sha1mb::{compress, compress_tail, tail_block, LANES};
 use hmac::{Hmac, Mac};
 use sha1::{Digest, Sha1};
 use std::ops::Range;
@@ -41,8 +41,8 @@ pub(crate) fn verify_passwords_aes(
             opad_blocks[lane][i] = key[i] ^ 0x5c;
         }
     }
-    compress4(&mut ipad_states, &ipad_blocks);
-    compress4(&mut opad_states, &opad_blocks);
+    compress(&mut ipad_states, &ipad_blocks);
+    compress(&mut opad_states, &opad_blocks);
 
     // PBKDF2-HMAC-SHA1, all candidates in lockstep.
     let mut derived = [[0u8; 2 * 32 + 2]; LANES];
@@ -58,14 +58,14 @@ pub(crate) fn verify_passwords_aes(
         }
 
         let mut u = {
-            let inner = compress_lanes(&ipad_states, &seed_blocks);
-            compress_lanes(&opad_states, &pad_blocks(&inner))
+            let inner = compress_blocks(&ipad_states, &seed_blocks);
+            compress_digests(&opad_states, &inner)
         };
         let mut acc = u;
 
         for _ in 1..PBKDF2_ROUNDS {
-            let inner = compress_lanes(&ipad_states, &pad_blocks(&u));
-            u = compress_lanes(&opad_states, &pad_blocks(&inner));
+            let inner = compress_digests(&ipad_states, &u);
+            u = compress_digests(&opad_states, &inner);
             for lane in 0..LANES {
                 for (a, b) in acc[lane].iter_mut().zip(u[lane].iter()) {
                     *a ^= b;
@@ -101,32 +101,24 @@ fn normalize_hmac_key(password: &[u8]) -> [u8; 64] {
     key
 }
 
-/// Final padded block for a message whose first 64 bytes are already absorbed
-/// into a midstate.
+/// Compresses one prepared block per lane and returns the digests.
 #[inline]
-fn tail_block(message: &[u8]) -> [u8; 64] {
-    debug_assert!(message.len() <= 55);
-    let mut block = [0u8; 64];
-    block[..message.len()].copy_from_slice(message);
-    block[message.len()] = 0x80;
-    let bit_len = ((64 + message.len()) as u64) * 8;
-    block[56..].copy_from_slice(&bit_len.to_be_bytes());
-    block
-}
-
-#[inline]
-fn pad_blocks(digests: &[[u8; 20]; LANES]) -> [[u8; 64]; LANES] {
-    let mut blocks = [[0u8; 64]; LANES];
-    for (block, digest) in blocks.iter_mut().zip(digests.iter()) {
-        *block = tail_block(digest);
-    }
-    blocks
-}
-
-#[inline]
-fn compress_lanes(states: &[[u32; 5]; LANES], blocks: &[[u8; 64]; LANES]) -> [[u8; 20]; LANES] {
+fn compress_blocks(states: &[[u32; 5]; LANES], blocks: &[[u8; 64]; LANES]) -> [[u8; 20]; LANES] {
     let mut states = *states;
-    compress4(&mut states, blocks);
+    compress(&mut states, blocks);
+    state_digests(&states)
+}
+
+/// Compresses one 20 byte message per lane and returns the digests.
+#[inline]
+fn compress_digests(states: &[[u32; 5]; LANES], digests: &[[u8; 20]; LANES]) -> [[u8; 20]; LANES] {
+    let mut states = *states;
+    compress_tail(&mut states, digests);
+    state_digests(&states)
+}
+
+#[inline]
+fn state_digests(states: &[[u32; 5]; LANES]) -> [[u8; 20]; LANES] {
     let mut digests = [[0u8; 20]; LANES];
     for (digest, state) in digests.iter_mut().zip(states.iter()) {
         for (chunk, word) in digest.chunks_mut(4).zip(state.iter()) {
@@ -161,7 +153,7 @@ pub(crate) fn verify_password_aes(password: &[u8], ctx: &AesContext, data: &[u8]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zip_crypto::verify_password_full;
+    use crate::zip_crypto::{verify_password_full, verify_with_keys_pair, PkwareKeys};
     use crate::zip_parser::{extract_zip_info, ZipEncryption};
 
     fn decode_hex(hex: &str) -> Vec<u8> {
@@ -224,7 +216,16 @@ mod tests {
         let data = decode_hex(AES256_ZIP);
         let ctx = aes_context(&data);
         let long = vec![b'k'; 100];
-        let passwords: [&[u8]; LANES] = [b"secret", long.as_slice(), b"", b"sec"];
+        let passwords: [&[u8]; LANES] = [
+            b"secret",
+            long.as_slice(),
+            b"",
+            b"sec",
+            b"secre",
+            b"secrett",
+            b"secr",
+            b"s",
+        ];
         let hits = verify_passwords_aes(&passwords, &ctx, &data);
         for (lane, password) in passwords.iter().enumerate() {
             assert_eq!(
@@ -234,7 +235,7 @@ mod tests {
             );
         }
         assert!(hits[0]);
-        assert!(!hits[1] && !hits[2] && !hits[3]);
+        assert!(hits[1..].iter().all(|&hit| !hit));
     }
 
     #[test]
@@ -264,7 +265,10 @@ mod tests {
                     };
 
                     let hits = verify_passwords_aes(
-                        &[password, b"nope", b"nope2", b"nope3"],
+                        &[
+                            password, b"nope", b"nope2", b"nope3", b"nope4", b"nope5", b"nope6",
+                            b"nope7",
+                        ],
                         &ctx,
                         &ciphertext,
                     );
@@ -272,7 +276,7 @@ mod tests {
                         hits[0],
                         "key_len={key_len} salt_len={salt_len} pw={password:?}"
                     );
-                    assert!(!hits[1] && !hits[2] && !hits[3]);
+                    assert!(hits[1..].iter().all(|&hit| !hit));
                 }
             }
         }
@@ -340,6 +344,40 @@ mod tests {
                 assert!(!verify_password_full(b"wrong", &ctx, data));
             }
             _ => panic!("expected a traditional PKWARE encrypted zip"),
+        }
+    }
+
+    #[test]
+    fn paired_verification_matches_single() {
+        let archives = [
+            decode_hex(ZIPCRYPTO_ZIP),
+            include_bytes!("../tests/fixtures/zipcrypto_deflate.zip").to_vec(),
+        ];
+        let candidates: [&[u8]; 8] = [
+            b"secret", b"wrong", b"wrong0", b"secret!", b"", b"s", b"sec", b"wrong1",
+        ];
+        for data in archives {
+            let ctx = match extract_zip_info(&data) {
+                Some(ZipEncryption::Traditional(ctx)) => ctx,
+                _ => panic!("expected a traditional PKWARE encrypted zip"),
+            };
+            for pair in candidates.chunks_exact(2) {
+                let (a, b) = verify_with_keys_pair(
+                    PkwareKeys::new(pair[0]),
+                    PkwareKeys::new(pair[1]),
+                    &ctx,
+                    &data,
+                );
+                assert_eq!(a, verify_password_full(pair[0], &ctx, &data));
+                assert_eq!(b, verify_password_full(pair[1], &ctx, &data));
+            }
+            let (a, b) = verify_with_keys_pair(
+                PkwareKeys::new(b"secret"),
+                PkwareKeys::new(b"secret"),
+                &ctx,
+                &data,
+            );
+            assert!(a && b, "both lanes must match");
         }
     }
 }

@@ -2,7 +2,7 @@ pub mod ettuh;
 pub mod ettup;
 pub mod ettuz;
 pub mod pdf_crypto;
-pub(crate) mod sha1x4;
+pub(crate) mod sha1mb;
 pub mod util;
 pub(crate) mod zip_aes;
 pub(crate) mod zip_crypto;

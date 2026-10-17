@@ -11,7 +11,10 @@ const MAX_BLOCK_SIZE: usize = 4 << 20;
 
 pub fn map_file(path: &str) -> Result<Mmap, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
-    Ok(unsafe { Mmap::map(&file)? })
+    let mmap = unsafe { Mmap::map(&file)? };
+    // Both wordlists and archives are read front to back.
+    let _ = mmap.advise(memmap2::Advice::Sequential);
+    Ok(mmap)
 }
 
 /// A memory mapped wordlist split into line aligned blocks.

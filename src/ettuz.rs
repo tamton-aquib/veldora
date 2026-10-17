@@ -1,7 +1,7 @@
-use crate::sha1x4::LANES;
+use crate::sha1mb::LANES;
 use crate::util;
 use crate::zip_aes::verify_passwords_aes;
-use crate::zip_crypto::{verify_with_keys, PkwareKeyCache};
+use crate::zip_crypto::{verify_with_keys, verify_with_keys_pair, PkwareKeyCache};
 use crate::zip_parser::{extract_zip_info, ZipEncryption};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -55,13 +55,39 @@ pub fn ettuz(
 
             match &encryption {
                 ZipEncryption::Traditional(ctx) => {
-                    let mut key_cache = PkwareKeyCache::new();
+                    // Candidates are checked two at a time so the two key
+                    // schedules overlap; each cache keeps its own prefix chain.
+                    let mut cache_a = PkwareKeyCache::new();
+                    let mut cache_b = PkwareKeyCache::new();
+                    let mut first: Option<(usize, usize)> = None;
                     for (counter, (start, end)) in
                         wordlist.lines(block_start, block_end).enumerate()
                     {
                         tick!(counter, end);
-                        let pass = &wordlist.bytes()[start..end];
-                        if verify_with_keys(key_cache.keys_for(pass), ctx, &zip_data) {
+                        let bytes = wordlist.bytes();
+                        match first.take() {
+                            None => first = Some((start, end)),
+                            Some((start_a, end_a)) => {
+                                let keys_a = cache_a.keys_for(&bytes[start_a..end_a]);
+                                let keys_b = cache_b.keys_for(&bytes[start..end]);
+                                let (hit_a, hit_b) =
+                                    verify_with_keys_pair(keys_a, keys_b, ctx, &zip_data);
+                                if hit_a {
+                                    found_flag.store(true, Ordering::Relaxed);
+                                    return Some((start_a, end_a));
+                                }
+                                if hit_b {
+                                    found_flag.store(true, Ordering::Relaxed);
+                                    return Some((start, end));
+                                }
+                            }
+                        }
+                    }
+
+                    // Odd number of lines: check the last one alone.
+                    if let Some((start, end)) = first {
+                        let keys = cache_a.keys_for(&wordlist.bytes()[start..end]);
+                        if verify_with_keys(keys, ctx, &zip_data) {
                             found_flag.store(true, Ordering::Relaxed);
                             return Some((start, end));
                         }
@@ -79,12 +105,10 @@ pub fn ettuz(
 
                         if pending_len == LANES {
                             let bytes = wordlist.bytes();
-                            let refs = [
-                                &bytes[pending[0].0..pending[0].1],
-                                &bytes[pending[1].0..pending[1].1],
-                                &bytes[pending[2].0..pending[2].1],
-                                &bytes[pending[3].0..pending[3].1],
-                            ];
+                            let refs: [&[u8]; LANES] = std::array::from_fn(|lane| {
+                                let (start, end) = pending[lane];
+                                &bytes[start..end]
+                            });
                             let hits = verify_passwords_aes(&refs, ctx, &zip_data);
                             if let Some(lane) = hits.iter().position(|&hit| hit) {
                                 found_flag.store(true, Ordering::Relaxed);

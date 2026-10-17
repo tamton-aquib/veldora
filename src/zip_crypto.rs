@@ -43,7 +43,7 @@ impl PkwareKeys {
     /// Test-only convenience: derives the key state for a fresh password
     /// without the prefix cache.
     #[cfg(test)]
-    fn new(password: &[u8]) -> Self {
+    pub(crate) fn new(password: &[u8]) -> Self {
         let mut k = Self::initial();
         for &b in password {
             k.update(b);
@@ -122,21 +122,48 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext, data
 }
 
 pub(crate) fn verify_with_keys(mut keys: PkwareKeys, ctx: &ZipCryptoContext, data: &[u8]) -> bool {
-    // Phase 1: decrypt 12-byte header, check byte 11
+    verify_header(&mut keys, ctx) && verify_payload(&mut keys, ctx, data)
+}
+
+/// Checks two candidate key states at once. The two decryption chains are
+/// independent, so the CPU can overlap them and hide part of the ~15 cycle
+/// per byte dependency chain.
+pub(crate) fn verify_with_keys_pair(
+    mut keys_a: PkwareKeys,
+    mut keys_b: PkwareKeys,
+    ctx: &ZipCryptoContext,
+    data: &[u8],
+) -> (bool, bool) {
+    let mut header_a = [0u8; 12];
+    let mut header_b = [0u8; 12];
+    for i in 0..12 {
+        let cipher = ctx.enc_header[i];
+        header_a[i] = keys_a.decrypt(cipher);
+        header_b[i] = keys_b.decrypt(cipher);
+    }
+
+    let hit_a = header_a[11] == ctx.check_byte && verify_payload(&mut keys_a, ctx, data);
+    let hit_b = header_b[11] == ctx.check_byte && verify_payload(&mut keys_b, ctx, data);
+    (hit_a, hit_b)
+}
+
+/// Phase 1: decrypt the 12-byte header, check byte 11.
+#[inline]
+fn verify_header(keys: &mut PkwareKeys, ctx: &ZipCryptoContext) -> bool {
     let mut buf = [0u8; 12];
     for (plain, &cipher) in buf.iter_mut().zip(ctx.enc_header.iter()) {
         *plain = keys.decrypt(cipher);
     }
-    if buf[11] != ctx.check_byte {
-        return false;
-    }
+    buf[11] == ctx.check_byte
+}
 
+/// Phase 2: decrypt the payload incrementally so the CRC can be updated in
+/// the same pass. Only 1 in 256 wrong passwords reach this point; entries
+/// whose deflate stream is corrupt are rejected after the first bytes
+/// instead of decrypting and inflating the whole payload.
+fn verify_payload(keys: &mut PkwareKeys, ctx: &ZipCryptoContext, data: &[u8]) -> bool {
     let payload = &data[ctx.payload.clone()];
 
-    // Phase 2: decrypt the payload incrementally so the CRC can be updated in
-    // the same pass. Only 1 in 256 wrong passwords reach this point; entries
-    // whose deflate stream is corrupt are rejected after the first bytes
-    // instead of decrypting and inflating the whole payload.
     match ctx.compression_method {
         0 => {
             let mut crc = 0xFFFFFFFFu32;
