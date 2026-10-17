@@ -37,28 +37,31 @@ pub fn ettuh(query: &str, pass_list: &str) -> Result<Option<String>, Box<dyn std
     let bar = util::make_progress_bar(total as u64);
     let processed = AtomicUsize::new(0);
 
-    let found = lines.par_iter().find_first(|&&(start, end)| {
-        let p = processed.fetch_add(1, Ordering::Relaxed);
-        if p & 0x1FF == 0 {
-            // update every ~512 passwords
-            bar.set_position(p as u64);
-        }
+    let found = lines.par_chunks(512).find_map_first(|chunk| {
+        let done = processed.fetch_add(chunk.len(), Ordering::Relaxed) + chunk.len();
+        bar.set_position(done as u64);
 
-        let pass = &mmap[start..end];
-        match target.len() {
-            16 => Md5::digest(pass).as_slice() == target.as_slice(),
-            20 => Sha1::digest(pass).as_slice() == target.as_slice(),
-            24 => Tiger::digest(pass).as_slice() == target.as_slice(),
-            28 => Sha224::digest(pass).as_slice() == target.as_slice(),
-            32 => Sha256::digest(pass).as_slice() == target.as_slice(),
-            48 => Sha384::digest(pass).as_slice() == target.as_slice(),
-            _ => Sha512::digest(pass).as_slice() == target.as_slice(),
+        for &(start, end) in chunk.iter() {
+            let pass = &mmap[start..end];
+            let matched = match target.len() {
+                16 => Md5::digest(pass).as_slice() == target.as_slice(),
+                20 => Sha1::digest(pass).as_slice() == target.as_slice(),
+                24 => Tiger::digest(pass).as_slice() == target.as_slice(),
+                28 => Sha224::digest(pass).as_slice() == target.as_slice(),
+                32 => Sha256::digest(pass).as_slice() == target.as_slice(),
+                48 => Sha384::digest(pass).as_slice() == target.as_slice(),
+                _ => Sha512::digest(pass).as_slice() == target.as_slice(),
+            };
+            if matched {
+                return Some((start, end));
+            }
         }
+        None
     });
 
     bar.finish_and_clear();
 
-    Ok(found.map(|&(start, end)| {
+    Ok(found.map(|(start, end)| {
         std::str::from_utf8(&mmap[start..end])
             .unwrap_or("<binary>")
             .to_string()

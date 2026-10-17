@@ -20,14 +20,14 @@ pub fn ettup(
 
     let killed = AtomicBool::new(false);
     let processed = AtomicUsize::new(0);
-    let found = lines.par_chunks(64).find_map_first(|chunk| {
+    let found = lines.par_chunks(512).find_map_first(|chunk| {
         let done = processed.fetch_add(chunk.len(), Ordering::Relaxed) + chunk.len();
         bar.set_position(done as u64);
 
+        if killed.load(Ordering::Relaxed) {
+            return None;
+        }
         for &(start, end) in chunk.iter() {
-            if killed.load(Ordering::Relaxed) {
-                return None;
-            }
             if ctx.verify_password(&mmap[start..end]) {
                 killed.store(true, Ordering::Relaxed);
                 return Some((start, end));

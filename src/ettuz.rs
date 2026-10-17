@@ -29,23 +29,27 @@ pub fn ettuz(
     let bar = util::make_progress_bar(total as u64);
 
     let processed = AtomicUsize::new(0);
-    let found = lines.par_iter().find_first(|&&(start, end)| {
-        let p = processed.fetch_add(1, Ordering::Relaxed);
-        if p & 0x1FF == 0 {
-            // update every ~512 passwords
-            bar.set_position(p as u64);
+    let found = lines.par_chunks(512).find_map_first(|chunk| {
+        let done = processed.fetch_add(chunk.len(), Ordering::Relaxed) + chunk.len();
+        bar.set_position(done as u64);
+
+        for &(start, end) in chunk.iter() {
+            let pass = &mmap[start..end];
+            let matched = match &encryption {
+                ZipEncryption::Traditional(ctx) => verify_password_full(pass, ctx),
+                ZipEncryption::Aes(ctx) => verify_password_aes(pass, ctx),
+            };
+            if matched {
+                return Some((start, end));
+            }
         }
-        let pass = &mmap[start..end];
-        match &encryption {
-            ZipEncryption::Traditional(ctx) => verify_password_full(pass, ctx),
-            ZipEncryption::Aes(ctx) => verify_password_aes(pass, ctx),
-        }
+        None
     });
 
     bar.finish_and_clear();
 
     Ok(match found {
-        Some(&(start, end)) => {
+        Some((start, end)) => {
             let pass = std::str::from_utf8(&mmap[start..end]).unwrap_or("<binary>");
             Some(pass.to_string())
         }
