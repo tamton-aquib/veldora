@@ -138,4 +138,18 @@ mod tests {
             _ => panic!("expected a traditional PKWARE encrypted zip"),
         }
     }
+
+    #[test]
+    fn cracks_pkware_zipcrypto_deflate_zip() {
+        // Deflate entry with a data descriptor, generated with Info-ZIP `zip`
+        // (user = "secret"); the payload spans several decrypt chunks.
+        let data = include_bytes!("../tests/fixtures/zipcrypto_deflate.zip");
+        match extract_zip_info(data) {
+            Some(ZipEncryption::Traditional(ctx)) => {
+                assert!(verify_password_full(b"secret", &ctx));
+                assert!(!verify_password_full(b"wrong", &ctx));
+            }
+            _ => panic!("expected a traditional PKWARE encrypted zip"),
+        }
+    }
 }

@@ -1,5 +1,3 @@
-use std::io::Read;
-
 pub(crate) const CRC32_TABLE: [u32; 256] = {
     let mut table = [0u32; 256];
     let mut i = 0;
@@ -71,8 +69,6 @@ pub(crate) struct ZipCryptoContext {
 }
 
 pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> bool {
-    use flate2::read::DeflateDecoder;
-
     let mut keys = PkwareKeys::new(password);
 
     // Phase 1: decrypt 12-byte header, check byte 11
@@ -84,29 +80,69 @@ pub(crate) fn verify_password_full(password: &[u8], ctx: &ZipCryptoContext) -> b
         return false;
     }
 
-    // Phase 2: decrypt payload
-    let mut decrypted = Vec::with_capacity(ctx.encrypted_payload.len());
-    for &b in &ctx.encrypted_payload {
-        decrypted.push(keys.decrypt(b));
-    }
-
-    // Phase 3: decompress (if needed) and CRC check
-    let data_for_crc = match ctx.compression_method {
-        0 => decrypted,
-        8 | 9 => {
-            let mut decompressed = Vec::new();
-            let mut decoder = DeflateDecoder::new(&decrypted[..]);
-            if decoder.read_to_end(&mut decompressed).is_err() {
-                return false;
+    // Phase 2: decrypt the payload incrementally so the CRC can be updated in
+    // the same pass. Only 1 in 256 wrong passwords reach this point; entries
+    // whose deflate stream is corrupt are rejected after the first bytes
+    // instead of decrypting and inflating the whole payload.
+    match ctx.compression_method {
+        0 => {
+            let mut crc = 0xFFFFFFFFu32;
+            for &cipher in &ctx.encrypted_payload {
+                crc = crc32_byte(crc, keys.decrypt(cipher));
             }
-            decompressed
+            crc ^ 0xFFFFFFFF == ctx.stored_crc
         }
-        _ => return false,
-    };
+        8 | 9 => {
+            use flate2::{Decompress, FlushDecompress, Status};
 
-    let mut crc = 0xFFFFFFFFu32;
-    for &b in &data_for_crc {
-        crc = CRC32_TABLE[((crc as u8) ^ b) as usize] ^ (crc >> 8);
+            let mut decomp = Decompress::new(false);
+            let mut crc = 0xFFFFFFFFu32;
+            let mut out = [0u8; 16384];
+            let mut buf = [0u8; 4096];
+            let mut pos = 0;
+
+            while pos < ctx.encrypted_payload.len() {
+                let n = (ctx.encrypted_payload.len() - pos).min(buf.len());
+                for (plain, &cipher) in buf[..n]
+                    .iter_mut()
+                    .zip(&ctx.encrypted_payload[pos..pos + n])
+                {
+                    *plain = keys.decrypt(cipher);
+                }
+                pos += n;
+
+                let mut input = &buf[..n];
+                while !input.is_empty() {
+                    let in_before = decomp.total_in();
+                    let out_before = decomp.total_out();
+
+                    match decomp.decompress(input, &mut out, FlushDecompress::None) {
+                        Ok(Status::StreamEnd) => {
+                            let produced = (decomp.total_out() - out_before) as usize;
+                            for &byte in &out[..produced] {
+                                crc = crc32_byte(crc, byte);
+                            }
+                            return crc ^ 0xFFFFFFFF == ctx.stored_crc;
+                        }
+                        Ok(_) => {}
+                        Err(_) => return false,
+                    }
+
+                    let consumed = (decomp.total_in() - in_before) as usize;
+                    let produced = (decomp.total_out() - out_before) as usize;
+                    if consumed == 0 && produced == 0 {
+                        return false;
+                    }
+                    for &byte in &out[..produced] {
+                        crc = crc32_byte(crc, byte);
+                    }
+                    input = &input[consumed..];
+                }
+            }
+
+            // The deflate stream ended prematurely.
+            false
+        }
+        _ => false,
     }
-    crc ^ 0xFFFFFFFF == ctx.stored_crc
 }
