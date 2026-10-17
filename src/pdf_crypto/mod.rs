@@ -1,4 +1,3 @@
-pub(crate) mod aes;
 pub(crate) mod kdf;
 pub(crate) mod md5;
 pub(crate) mod parser;
